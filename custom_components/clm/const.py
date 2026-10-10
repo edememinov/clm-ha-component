@@ -1,0 +1,7 @@
+"""Companion adapter constants."""
+
+DOMAIN = "clm"
+API_VERSION = 1
+STORAGE_VERSION = 1
+MAX_RESPONSE = 1024 * 1024
+REQUEST_TIMEOUT = 30

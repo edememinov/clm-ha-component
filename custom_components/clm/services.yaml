@@ -1,0 +1,27 @@
+invoke:
+  name: Run CLM binding
+  description: Runs an approved binding using the authenticated caller's linked account.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: clm
+    binding:
+      required: true
+      selector:
+        text:
+run_automation:
+  name: Run authorized automation
+  description: Runs an existing enabled automation with its conditions and bounded CLM bindings.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: clm
+    automation:
+      required: true
+      selector:
+        entity:
+          domain: automation

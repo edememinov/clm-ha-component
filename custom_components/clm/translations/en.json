@@ -1,0 +1,8 @@
+{
+  "title": "CLM",
+  "config": {
+    "step": {"user": {"title": "Connect CLM", "description": "Configure secure transport, then link each account from the CLM card.", "data": {"api_origin": "CLM API origin", "workspace_origin": "CLM workspace origin", "ha_origin": "Home Assistant origin"}}},
+    "error": {"cannot_connect": "Unable to connect to CLM.", "invalid_origin": "Enter HTTPS origins without paths or credentials."},
+    "abort": {"already_configured": "This connection already exists.", "unsupported_version": "The companion API version is unsupported."}
+  }
+}

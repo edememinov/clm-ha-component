@@ -1,0 +1,73 @@
+"""Unit tests for isolated HTTPS transport with fake I/O."""
+
+import importlib.util
+from pathlib import Path
+import sys
+import types
+import unittest
+
+root = Path(__file__).parents[1] / "custom_components" / "clm"
+package = types.ModuleType("clm_transport_test")
+package.__path__ = [str(root)]
+sys.modules[package.__name__] = package
+for name in ("const", "client"):
+    spec = importlib.util.spec_from_file_location(f"{package.__name__}.{name}", root / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+client = sys.modules[f"{package.__name__}.client"]
+
+
+class Response:
+    def __init__(self, status=200, blocks=None):
+        self.status = status
+        self.blocks = blocks or [b'{"ok":true}']
+        self.content = self
+    async def __aenter__(self):
+        return self
+    async def __aexit__(self, *args):
+        return False
+    async def iter_chunked(self, size):
+        for block in self.blocks:
+            yield block
+
+
+class Session:
+    def __init__(self, response):
+        self.response = response
+        self.calls = []
+    def post(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return self.response
+
+
+class ClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_installation_request_does_not_inherit_account_credentials(self):
+        session = Session(Response())
+        transport = client.CompanionClient(session, "https://api.example")
+        self.assertEqual({"ok": True}, await transport.request("installations", {"audience": "https://hub.example"}))
+        self.assertEqual({}, session.calls[0][1]["headers"])
+        self.assertFalse(session.calls[0][1]["allow_redirects"])
+
+    async def test_remote_error_is_neutral_and_never_retried(self):
+        session = Session(Response(403, [b'{"detail":"private label"}']))
+        with self.assertRaises(client.CompanionError) as error:
+            await client.CompanionClient(session, "https://api.example").request("bindings/invoke", {}, "credential")
+        self.assertNotIn("private", str(error.exception))
+        self.assertEqual(1, len(session.calls))
+
+    async def test_redirects_and_large_responses_are_denied(self):
+        for response in (Response(302), Response(200, [b'x' * (1024 * 1024 + 1)])):
+            with self.assertRaises(client.CompanionError):
+                await client.CompanionClient(Session(response), "https://api.example").request("capabilities", {}, "credential")
+
+    async def test_client_is_not_a_general_api_proxy(self):
+        session = Session(Response())
+        with self.assertRaises(client.CompanionError):
+            await client.CompanionClient(session, "https://api.example").request("../admin", {})
+        self.assertEqual([], session.calls)
+
+    def test_origin_rejects_credentials_paths_and_insecure_transport(self):
+        for value in ("http://api.example", "https://user:secret@api.example", "https://api.example/path", "https://api.example?token=secret"):
+            with self.assertRaises(ValueError):
+                client.https_origin(value)
