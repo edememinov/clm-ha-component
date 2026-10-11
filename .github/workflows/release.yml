@@ -47,7 +47,7 @@ jobs:
           if state=$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null); then
             if [[ "$state" == 'false' ]]; then
               git fetch origin "refs/tags/$tag:refs/tags/$tag"
-              if ! git diff --quiet "$tag" HEAD -- custom_components/clm; then
+              if ! git diff --quiet "$tag" HEAD -- custom_components/clm hacs.json; then
                 echo 'Integration code changed after this release. Bump manifest.json version before publishing.'
                 exit 1
               fi
