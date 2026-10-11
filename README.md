@@ -8,13 +8,22 @@ Enable CLM authentication and grant Webhooks view/use plus the intended feature
 permissions to each linked account. Configure the server and browser URLs as described below. Install the independent
 CLM Lovelace card and link each user's own account from that card.
 
-## Run CLM workflows
+## Start sessions and open Windows windows from HA
 
 For HA automations that launch presets or open Windows viewers directly, use
 the automatically registered [native Windows actions](docs/native-actions.md).
 These actions use a device, supplied PIN, preset/session name and incognito
 setting. HA owns their trigger; no CLM workflow is required. Existing MQTT
 discovery remains available.
+
+Find **CLM: Start session and open Selkies**, **Open matching Selkies viewers**,
+**Open CLM window**, and **List CLM Windows workers** in HA's **Add action**
+picker. The [step-by-step setup and YAML guide](docs/native-actions.md) covers
+the separately installed Windows worker, per-call PIN, shared device names,
+normal/private launches, all/latest selection and worker online/offline status.
+Updating HACS alone does not install or upgrade the Windows worker.
+
+## Run CLM workflows
 
 For a dashboard button or an authenticated action, approve the workflow in the
 CLM card workspace, use **List approved CLM bindings** to find its binding, then
