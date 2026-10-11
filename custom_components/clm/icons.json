@@ -1,0 +1,28 @@
+{
+  "services": {
+    "invoke": {
+      "service": "mdi:play"
+    },
+    "run_workflow": {
+      "service": "mdi:play-network"
+    },
+    "list_bindings": {
+      "service": "mdi:format-list-bulleted"
+    },
+    "run_automation": {
+      "service": "mdi:robot"
+    },
+    "start_session": {
+      "service": "mdi:play-box"
+    },
+    "open_selkies": {
+      "service": "mdi:monitor"
+    },
+    "open_clm": {
+      "service": "mdi:application"
+    },
+    "list_devices": {
+      "service": "mdi:devices"
+    }
+  }
+}

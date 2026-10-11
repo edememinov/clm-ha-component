@@ -58,7 +58,8 @@ class CompanionClient:
     async def request(self, route: str, payload: dict | list, credential: str | None = None) -> dict | list:
         if route not in {"installations", "installations/origins", "challenges", "challenges/exchange", "capabilities",
                          "catalog/query", "bindings", "bindings/list", "bindings/invoke",
-                         "ui-sessions", "revoke", "external-automations", "dispatches/poll", "dispatches/acknowledge"}:
+                         "ui-sessions", "revoke", "external-automations", "dispatches/poll", "dispatches/acknowledge",
+                         "native/actions", "native/devices"}:
             raise CompanionError()
         headers = {"Authorization": f"Bearer {credential}"} if credential else {}
         try:

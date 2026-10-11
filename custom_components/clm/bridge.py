@@ -26,6 +26,8 @@ def bindings_for(config, entry_id: str) -> list[str]:
                 visit(item)
         elif isinstance(value, dict):
             action = value.get("action", value.get("service", ""))
+            if action == "clm.run_workflow":
+                raise ValueError("Workflow recursion is unsupported.")
             if action == "clm.invoke":
                 data = value.get("data", {})
                 if data.get("config_entry_id") != entry_id or not isinstance(data.get("binding"), str) or "{{" in data["binding"]:

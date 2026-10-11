@@ -21,3 +21,17 @@ class MetadataTests(unittest.TestCase):
         for step in ("user", "reconfigure"):
             self.assertEqual(fields, set(strings["config"]["step"][step]["data"]))
             self.assertEqual(fields, set(strings["config"]["step"][step]["data_description"]))
+
+    def test_every_native_action_has_translated_fields_and_an_icon(self):
+        strings=json.loads((component / "strings.json").read_text(encoding="utf-8"))
+        icons=json.loads((component / "icons.json").read_text(encoding="utf-8"))
+        expected={"invoke":{"config_entry_id","binding"},"run_workflow":{"config_entry_id","binding"},
+                  "list_bindings":{"config_entry_id","workflows_only"},"run_automation":{"config_entry_id","automation"}}
+        common={"config_entry_id","account_user_id","device","pin","incognito"}
+        expected.update({"start_session":common|{"preset_name"},"open_selkies":common|{"session_name","match"},
+                         "open_clm":common,"list_devices":{"config_entry_id","account_user_id"}})
+        self.assertEqual(set(expected),set(strings["services"]))
+        self.assertEqual(set(expected),set(icons["services"]))
+        for name,fields in expected.items():
+            self.assertEqual(fields,set(strings["services"][name]["fields"]))
+            self.assertTrue(strings["services"][name]["description"])

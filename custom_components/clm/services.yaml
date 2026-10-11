@@ -11,9 +11,141 @@ invoke:
       required: true
       selector:
         text:
+
+start_session:
+  name: Start session and open Selkies
+  description: Starts a uniquely named preset using the linked account and supplied PIN, then opens its Selkies viewer on the chosen online Windows worker. HA owns the automation and trigger.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: clm
+    device:
+      name: CLM device
+      required: true
+      description: The same device name shown in CLM Devices, or its stable ID. The updated Windows worker must be online.
+      selector:
+        text:
+    pin:
+      name: Personal Mode PIN
+      required: true
+      description: Sent to CLM to authorize this action; never forwarded to the Windows worker. HA configuration and traces may contain the supplied value.
+      selector:
+        text:
+          type: password
+    preset_name:
+      name: Preset name
+      required: true
+      description: Exact name, ignoring case. Duplicate names are rejected.
+      selector:
+        text:
+    incognito:
+      name: Incognito window
+      default: false
+      selector:
+        boolean:
+    account_user_id:
+      name: Linked HA account
+      advanced: true
+      description: Optional when one account is linked. Required for unattended actions when multiple accounts are linked.
+      selector:
+        text:
+
+open_selkies:
+  name: Open matching Selkies viewers
+  description: Opens existing owned Selkies sessions whose name contains the supplied text, using the PIN for this action only. Does not open a CLM window or unlock the HA card.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: clm
+    device:
+      name: CLM device
+      required: true
+      selector:
+        text:
+    pin:
+      name: Personal Mode PIN
+      required: true
+      selector:
+        text:
+          type: password
+    session_name:
+      name: Session name contains
+      required: true
+      selector:
+        text:
+    match:
+      name: Matching sessions
+      default: latest
+      selector:
+        select:
+          options:
+            - label: Most recently started match
+              value: latest
+            - label: All matches
+              value: all
+    incognito:
+      name: Incognito window
+      default: false
+      selector:
+        boolean:
+    account_user_id:
+      name: Linked HA account
+      advanced: true
+      selector:
+        text:
+
+open_clm:
+  name: Open CLM window
+  description: Opens the CLM web app configured by the chosen Windows worker, in a normal or incognito browser window.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: clm
+    device:
+      name: CLM device
+      required: true
+      selector:
+        text:
+    pin:
+      name: Personal Mode PIN
+      required: true
+      selector:
+        text:
+          type: password
+    incognito:
+      name: Incognito window
+      default: false
+      selector:
+        boolean:
+    account_user_id:
+      name: Linked HA account
+      advanced: true
+      selector:
+        text:
+
+list_devices:
+  name: List CLM Windows workers
+  description: Returns canonical CLM device names and worker online/offline status, without personal session metadata.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: clm
+    account_user_id:
+      name: Linked HA account
+      advanced: true
+      selector:
+        text:
 run_automation:
-  name: Run authorized automation
-  description: Runs an existing enabled automation with its conditions and bounded CLM bindings.
+  name: Run Home Assistant automation
+  description: Runs an existing Home Assistant automation with its conditions and bounded CLM bindings. Use Run CLM workflow for a workflow saved in CLM.
   fields:
     config_entry_id:
       required: true
@@ -25,3 +157,25 @@ run_automation:
       selector:
         entity:
           domain: automation
+list_bindings:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: clm
+    workflows_only:
+      default: true
+      selector:
+        boolean:
+run_workflow:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: clm
+    binding:
+      required: true
+      selector:
+        text:

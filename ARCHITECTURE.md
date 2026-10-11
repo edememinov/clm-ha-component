@@ -66,6 +66,49 @@ Release creation uses the workflow's scoped contents-write token, starts as a
 draft and publishes only after preparation. Reruns skip identical published
 versions; no archive packaging or execution credentials are involved.
 
+## Workflow execution actions — 0.1.3
+
+`__init__.py` owns `clm.list_bindings` (response required) and
+`clm.run_workflow` (optional bounded outcome response). Both are registered in
+`async_setup` using native HA schemas and selectors. `services.yaml`,
+`strings.json`, `translations/en.json` and `icons.json` own action metadata;
+there is no copied UI control or stylesheet. `run_automation` keeps its existing
+service ID and behavior but is labeled Run Home Assistant automation, making the
+execution direction explicit.
+
+`execute_binding` is the one linked-account invocation owner shared with
+`clm.invoke`. The workflow action validates a currently listed non-personal
+`automation.run` binding, then delegates to the existing `bindings/invoke`
+transport with a fresh idempotency key. Only authenticated user contexts qualify;
+no actor or PIN parameter, installation authority, account fallback, additional
+credential store or entity publication is introduced. Backend invocation still
+rechecks permissions, expiry, ownership and workflow state. Failed workflow
+results raise a neutral HA error; unknown network outcomes are not retried.
+Listing returns only ID, operation and expiry for the linked user's non-personal
+approvals, filtered to workflows by default.
+
+`bridge.bindings_for` rejects `clm.run_workflow` even in nested HA action blocks.
+The existing outbound bridge remains limited to approved leaf bindings; the new
+service cannot bypass its workflow-cycle restriction through an inherited HA
+context. Existing `clm.invoke` ingress behavior is preserved.
+
+Unattended HA schedules/sensor events use the existing MQTT trigger rather than
+inventing authenticated provenance. No backend contract or binding scope changes
+are needed. The execution [README](docs/automation-execution/README.md) documents
+account approval, native actions, dashboard buttons, MQTT/HTTP alternatives,
+responses, expiry and troubleshooting. Existing owners and contracts are reused;
+no new execution abstraction or persistence layer is necessary.
+
+Verification: 47 component tests passed on Python 3.14.3; compilation and
+`git diff --check` passed. Ten handler tests cover invocation, linked-account
+scope, workflow type, personal/anonymous denial, listing, failures, native schema
+fields and existing bounded leaf ingress. Bridge and metadata tests cover nested
+cycle rejection and action translations/icons. Native frontend verification was
+attempted against login-loaded HA assets, which expose `ha-form` but not the
+`ha-selector` element required by these forms; no visual pass is claimed. No live
+HA action invocation or deployment was performed. Install/restart the updated
+component for the new native Actions entries to become available.
+
 Reference documentation:
 
 - https://developers.home-assistant.io/docs/auth_permissions/
@@ -76,3 +119,16 @@ Reference documentation:
 - https://developers.home-assistant.io/docs/automations/
 
 The last interface is provisional and is excluded from implementation.
+
+## HA-owned native worker actions
+
+`native_actions.py` automatically registers start_session/open_selkies/open_clm
+and list_devices during async_setup. Native HA service selectors, translations
+and icons supply the action fields. Interactive callers retain their own account;
+unattended callers select one explicitly when multiple links exist. The supplied
+PIN is forwarded only to the CLM native action adapter and removed from the
+request dictionary afterward; HA action data/traces may contain it. No view token,
+installation credential, saved workflow or shared admin fallback authorizes these
+actions. `docs/native-actions.md` owns setup, inputs, examples and delivery limits.
+The backend owns authorization/selection/queueing; the existing Windows worker
+opens validated URLs with fixed normal/private browser arguments.

@@ -8,6 +8,24 @@ Enable CLM authentication and grant Webhooks view/use plus the intended feature
 permissions to each linked account. Configure the server and browser URLs as described below. Install the independent
 CLM Lovelace card and link each user's own account from that card.
 
+## Run CLM workflows
+
+For HA automations that launch presets or open Windows viewers directly, use
+the automatically registered [native Windows actions](docs/native-actions.md).
+These actions use a device, supplied PIN, preset/session name and incognito
+setting. HA owns their trigger; no CLM workflow is required. Existing MQTT
+discovery remains available.
+
+For a dashboard button or an authenticated action, approve the workflow in the
+CLM card workspace, use **List approved CLM bindings** to find its binding, then
+call **Run CLM workflow** (`clm.run_workflow`). For schedules or sensor triggers,
+use the workflow's MQTT trigger. These are distinct from `clm.run_automation`,
+which runs an existing Home Assistant automation.
+
+The [workflow execution README](docs/automation-execution/README.md) includes
+setup, approval, native action and dashboard examples, unattended MQTT execution,
+HTTP webhook alternatives and troubleshooting.
+
 ## Connection addresses
 
 - **CLM backend URL:** the backend base URL reached by HA, without `/api`.
@@ -66,8 +84,10 @@ archive or shared browser-extension package is built.
 
 No installation token can browse or execute CLM items. No administrator fallback
 exists. Account links use an expiring challenge approved in signed-in CLM.
-Personal PINs remain in the embedded view's memory and never enter HA actions,
-traces, entities or storage. Trusted HA operators can access its credential storage.
+PINs entered in the embedded view stay in that view's memory. Direct native
+actions deliberately take a PIN from HA action data: HA operators and automation
+traces may see it. Use `!secret` in YAML. CLM does not persist this PIN or send it
+to the Windows worker. Trusted HA operators can access its credential storage.
 Removing a connection attempts remote revocation and removes local credentials;
 offline removal requires revoking the link in CLM as well.
 

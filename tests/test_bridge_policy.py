@@ -30,3 +30,9 @@ class BridgePolicyTests(unittest.TestCase):
         config["actions"][0]["data"]["binding"] = "{{ forged }}"
         with self.assertRaises(ValueError):
             select(config, "connection")
+
+    def test_native_workflow_action_cannot_enter_the_outbound_bridge(self):
+        for actions in ([{"action":"clm.run_workflow","data":{"config_entry_id":"connection","binding":"workflow"}}],
+                        [{"choose":[{"conditions":[],"sequence":[{"service":"clm.run_workflow","data":{"config_entry_id":"connection","binding":"workflow"}}]}]}]):
+            with self.assertRaises(ValueError):
+                scope["bindings_for"]({"actions":actions},"connection")

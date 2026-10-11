@@ -37,23 +37,46 @@ async def linked_user(hass, runtime: Runtime, actor: str) -> str:
 async def async_setup(hass, config):
     from .websocket import register
     register(hass)
+    from .native_actions import register as register_native_actions
+    register_native_actions(hass)
 
     async def invoke(call):
         runtime = _runtime(hass, call.data["config_entry_id"])
-        try:
-            actor = runtime.authority.resolve(call.context.user_id, call.context.parent_id, call.data["binding"])
-            token = await linked_user(hass, runtime, actor)
-            # Personal PINs never enter service data or automation traces.
-            result = await runtime.client.request("bindings/invoke", {
-                "binding": call.data["binding"], "key": str(uuid4()),
-            }, token)
-            return {key: result[key] for key in ("id", "status", "code", "duplicate")}
-        except Denied:
-            raise Unauthorized(context=call.context) from None
-        except CompanionError:
-            raise HomeAssistantError("CLM request failed.") from None
+        return await execute_binding(hass, runtime, call.context, call.data["binding"])
 
     hass.services.async_register(DOMAIN, "invoke", invoke, schema=vol.Schema({
+        vol.Required("config_entry_id"): str,
+        vol.Required("binding"): str,
+    }), supports_response=SupportsResponse.OPTIONAL)
+
+    async def list_bindings(call):
+        runtime = _runtime(hass, call.data["config_entry_id"])
+        if not call.context.user_id:
+            raise Unauthorized(context=call.context)
+        token = await linked_user(hass, runtime, call.context.user_id)
+        try:
+            bindings = await runtime.client.request("bindings/list", {}, token)
+            return {"bindings": [
+                {key: item[key] for key in ("id", "operation", "expires")}
+                for item in bindings if not item["personal"]
+                and (not call.data.get("workflows_only", True) or item["operation"] == "automation.run")
+            ]}
+        except CompanionError:
+            raise HomeAssistantError("CLM bindings are unavailable.") from None
+
+    hass.services.async_register(DOMAIN, "list_bindings", list_bindings, schema=vol.Schema({
+        vol.Required("config_entry_id"): str,
+        vol.Optional("workflows_only", default=True): bool,
+    }), supports_response=SupportsResponse.ONLY)
+
+    async def run_workflow(call):
+        runtime = _runtime(hass, call.data["config_entry_id"])
+        result = await execute_binding(hass, runtime, call.context, call.data["binding"], "automation.run")
+        if result["status"] == "failed" or result["code"] >= 300:
+            raise HomeAssistantError("CLM workflow failed.")
+        return result
+
+    hass.services.async_register(DOMAIN, "run_workflow", run_workflow, schema=vol.Schema({
         vol.Required("config_entry_id"): str,
         vol.Required("binding"): str,
     }), supports_response=SupportsResponse.OPTIONAL)
@@ -99,6 +122,26 @@ async def async_setup(hass, config):
         vol.Required("automation"): str,
     }))
     return True
+
+
+async def execute_binding(hass, runtime: Runtime, context, binding: str, operation: str | None = None):
+    """Reuse linked-account execution without introducing a second authority path."""
+    try:
+        actor = runtime.authority.resolve(context.user_id, context.parent_id, binding)
+        token = await linked_user(hass, runtime, actor)
+        if operation is not None:
+            # A workflow call needs a human caller; bridge ingress stays restricted to leaf actions.
+            if not context.user_id:
+                raise Unauthorized(context=context)
+            available = await runtime.client.request("bindings/list", {}, token)
+            if not any(item["id"] == binding and not item["personal"] and item["operation"] == operation for item in available):
+                raise Unauthorized(context=context)
+        result = await runtime.client.request("bindings/invoke", {"binding": binding, "key": str(uuid4())}, token)
+        return {key: result[key] for key in ("id", "status", "code", "duplicate")}
+    except Denied:
+        raise Unauthorized(context=context) from None
+    except CompanionError:
+        raise HomeAssistantError("CLM request failed.") from None
 
 
 def _runtime(hass, entry_id: str) -> Runtime:

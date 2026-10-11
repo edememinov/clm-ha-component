@@ -59,5 +59,167 @@
       "unsupported_version": "Update the CLM backend: it must support multiple Home Assistant browser addresses.",
       "reconfigure_successful": "CLM addresses updated. Your account links are preserved."
     }
+  },
+  "services": {
+    "invoke": {
+      "name": "Run CLM binding",
+      "description": "Run an approved action using your linked CLM account.",
+      "fields": {
+        "config_entry_id": {
+          "name": "CLM connection",
+          "description": "Choose the configured CLM integration."
+        },
+        "binding": {
+          "name": "Approved binding",
+          "description": "The ID of a binding approved in the CLM workspace."
+        }
+      }
+    },
+    "list_bindings": {
+      "name": "List approved CLM bindings",
+      "description": "Return your non-personal approved workflow bindings and expiry times. Turn off Workflows only to include other actions.",
+      "fields": {
+        "config_entry_id": {
+          "name": "CLM connection",
+          "description": "Choose the configured CLM integration."
+        },
+        "workflows_only": {
+          "name": "Workflows only",
+          "description": "Show bindings that run CLM workflows."
+        }
+      }
+    },
+    "run_workflow": {
+      "name": "Run CLM workflow",
+      "description": "Run a non-personal CLM workflow using an approved binding and your linked account. For unattended schedules or sensor triggers, use its MQTT trigger.",
+      "fields": {
+        "config_entry_id": {
+          "name": "CLM connection",
+          "description": "Choose the configured CLM integration."
+        },
+        "binding": {
+          "name": "Approved workflow binding",
+          "description": "Approve Run automation in the CLM workspace, then copy its binding ID from List approved CLM bindings. This is not the workflow ID."
+        }
+      }
+    },
+    "run_automation": {
+      "name": "Run Home Assistant automation",
+      "description": "Run an existing HA automation with its conditions and bounded CLM action bindings. This does not run a CLM workflow.",
+      "fields": {
+        "config_entry_id": {
+          "name": "CLM connection",
+          "description": "Choose the configured CLM integration."
+        },
+        "automation": {
+          "name": "Home Assistant automation",
+          "description": "Choose an enabled automation entity."
+        }
+      }
+    },
+    "start_session": {
+      "name": "Start session and open Selkies",
+      "description": "Starts a uniquely named preset using the linked account and supplied PIN, then opens its Selkies viewer on the chosen online Windows worker. HA owns the automation and trigger.",
+      "fields": {
+        "config_entry_id": {
+          "name": "CLM connection",
+          "description": "Choose the CLM connection installed in Home Assistant."
+        },
+        "device": {
+          "name": "CLM device",
+          "description": "Use the exact device name or ID from CLM Devices or List CLM Windows workers. The Windows worker must be online."
+        },
+        "pin": {
+          "name": "Personal Mode PIN",
+          "description": "The linked CLM account PIN, checked for this call only. HA action data and traces may contain it; it is never sent to the worker."
+        },
+        "preset_name": {
+          "name": "Preset name",
+          "description": "Exact unique preset name to start. The action opens its Selkies viewer directly on the selected PC."
+        },
+        "incognito": {
+          "name": "Incognito window",
+          "description": "Open a new private browser window on the selected Windows PC. This does not change CLM Personal Mode."
+        },
+        "account_user_id": {
+          "name": "Linked HA account",
+          "description": "For unattended automations with multiple linked accounts, select the HA user ID whose CLM link to use. Interactive callers always use their own link."
+        }
+      }
+    },
+    "open_selkies": {
+      "name": "Open matching Selkies viewers",
+      "description": "Opens existing owned Selkies sessions whose name contains the supplied text, using the PIN for this action only. Does not open a CLM window or unlock the HA card.",
+      "fields": {
+        "config_entry_id": {
+          "name": "CLM connection",
+          "description": "Choose the CLM connection installed in Home Assistant."
+        },
+        "device": {
+          "name": "CLM device",
+          "description": "Use the exact device name or ID from CLM Devices or List CLM Windows workers. The Windows worker must be online."
+        },
+        "pin": {
+          "name": "Personal Mode PIN",
+          "description": "The linked CLM account PIN, checked for this call only. HA action data and traces may contain it; it is never sent to the worker."
+        },
+        "session_name": {
+          "name": "Session name contains",
+          "description": "Case-insensitive text contained in the names of your running Selkies sessions."
+        },
+        "match": {
+          "name": "Matching sessions",
+          "description": "Open all matching owned active sessions, or only the most recently started match."
+        },
+        "incognito": {
+          "name": "Incognito window",
+          "description": "Open a new private browser window on the selected Windows PC. This does not change CLM Personal Mode."
+        },
+        "account_user_id": {
+          "name": "Linked HA account",
+          "description": "For unattended automations with multiple linked accounts, select the HA user ID whose CLM link to use. Interactive callers always use their own link."
+        }
+      }
+    },
+    "open_clm": {
+      "name": "Open CLM window",
+      "description": "Opens the CLM web app configured by the chosen Windows worker, in a normal or incognito browser window.",
+      "fields": {
+        "config_entry_id": {
+          "name": "CLM connection",
+          "description": "Choose the CLM connection installed in Home Assistant."
+        },
+        "device": {
+          "name": "CLM device",
+          "description": "Use the exact device name or ID from CLM Devices or List CLM Windows workers. The Windows worker must be online."
+        },
+        "pin": {
+          "name": "Personal Mode PIN",
+          "description": "The linked CLM account PIN, checked for this call only. HA action data and traces may contain it; it is never sent to the worker."
+        },
+        "incognito": {
+          "name": "Incognito window",
+          "description": "Open a new private browser window on the selected Windows PC. This does not change CLM Personal Mode."
+        },
+        "account_user_id": {
+          "name": "Linked HA account",
+          "description": "For unattended automations with multiple linked accounts, select the HA user ID whose CLM link to use. Interactive callers always use their own link."
+        }
+      }
+    },
+    "list_devices": {
+      "name": "List CLM Windows workers",
+      "description": "Returns canonical CLM device names and worker online/offline status, without personal session metadata.",
+      "fields": {
+        "config_entry_id": {
+          "name": "CLM connection",
+          "description": "Choose the CLM connection installed in Home Assistant."
+        },
+        "account_user_id": {
+          "name": "Linked HA account",
+          "description": "For unattended automations with multiple linked accounts, select the HA user ID whose CLM link to use. Interactive callers always use their own link."
+        }
+      }
+    }
   }
 }
