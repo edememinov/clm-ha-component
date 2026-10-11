@@ -26,13 +26,35 @@ class ClmConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def _configure(self, user_input, entry=None):
         errors = {}
         discovered, internal = discover_origins(self.hass)
+        values = {}
+        extra = []
         if user_input is not None:
+            for field in ("api_origin", "workspace_origin", "workspace_local_origin", "workspace_local_fallback_origin"):
+                value = user_input.get(field, "")
+                if not value and field not in ("api_origin", "workspace_origin"):
+                    values[field] = None
+                    continue
+                if not isinstance(value, str) or "://" not in value:
+                    errors[field] = "missing_scheme"
+                    continue
+                try:
+                    values[field] = web_origin(value, allow_http=True)
+                except ValueError:
+                    errors[field] = "invalid_url"
+            stored_extra = entry.data.get("extra_ha_origins", [entry.data["ha_origin"]] if "ha_origins" not in entry.data else []) if entry else []
+            for value in user_input.get("extra_ha_origins", stored_extra):
+                try:
+                    if not isinstance(value, str) or "://" not in value:
+                        errors["extra_ha_origins"] = "missing_scheme"
+                    else:
+                        extra.append(web_origin(value, allow_http=True))
+                except ValueError:
+                    errors["extra_ha_origins"] = "invalid_url"
+        if user_input is not None and not errors:
             try:
-                api = web_origin(user_input["api_origin"], allow_http=True)
-                workspace = web_origin(user_input["workspace_origin"], allow_http=True)
-                local = user_input.get("workspace_local_origin", "")
-                local = web_origin(local, allow_http=True) if local else None
-                extra = [web_origin(value, allow_http=True) for value in user_input.get("extra_ha_origins", [])]
+                api = values["api_origin"]
+                workspace = values["workspace_origin"]
+                local = values["workspace_local_origin"]
                 audiences = list(dict.fromkeys(discovered + extra))
                 if not audiences:
                     errors["base"] = "no_ha_url"
@@ -42,6 +64,7 @@ class ClmConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     errors["api_origin"] = "backend_changed"
                 else:
                     client = CompanionClient(async_get_clientsession(self.hass), api)
+                    await client.check_transport()
                     if entry:
                         installation = await client.request("installations/origins", {"audiences": audiences}, entry.data["auth_token"])
                     else:
@@ -57,6 +80,7 @@ class ClmConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data = {
                         "api_origin": api, "workspace_origin": workspace,
                         "workspace_local_origin": local, "ha_origin": audiences[0],
+                        "workspace_local_fallback_origin": values["workspace_local_fallback_origin"],
                         "ha_origins": audiences, "internal_ha_origin": internal,
                         "extra_ha_origins": extra,
                     }
@@ -64,22 +88,23 @@ class ClmConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         return self.async_update_reload_and_abort(entry, data_updates=data)
                     data.update(installation=installation["installation"], auth_token=installation["credential"])
                     return self.async_create_entry(title=f"CLM ({api})", data=data)
-            except ValueError:
-                errors["base"] = "invalid_origin"
-            except CompanionError:
-                errors["base"] = "cannot_connect"
+            except CompanionError as error:
+                errors["api_origin"] = error.reason
         defaults = dict(entry.data) if entry else {}
         if entry and "ha_origins" not in defaults:
             defaults["extra_ha_origins"] = [defaults["ha_origin"]]
         if user_input:
             defaults.update(user_input)
         text = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL))
-        schema = vol.Schema({
+        fields = {
             vol.Required("api_origin"): text,
             vol.Required("workspace_origin"): text,
             vol.Optional("workspace_local_origin"): text,
-            vol.Optional("extra_ha_origins"): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL, multiple=True)),
-        })
+            vol.Optional("workspace_local_fallback_origin"): text,
+        }
+        if getattr(self, "show_advanced_options", False) or not discovered or "extra_ha_origins" in errors:
+            fields[vol.Optional("extra_ha_origins")] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL, multiple=True))
+        schema = vol.Schema(fields)
         return self.async_show_form(
             step_id="reconfigure" if entry else "user", errors=errors,
             description_placeholders={"ha_urls": ", ".join(discovered) or "None detected; configure HA network URLs or add an address below."},

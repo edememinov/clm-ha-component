@@ -6,7 +6,7 @@ from homeassistant.components import websocket_api
 from homeassistant.exceptions import HomeAssistantError, Unauthorized
 
 from .client import CompanionError
-from .addresses import browser_connection
+from .addresses import browser_connection, workspace_origins
 
 
 def register(hass):
@@ -21,6 +21,7 @@ def register(hass):
     vol.Optional("binding"): str,
     vol.Optional("audience"): str,
     vol.Optional("workspace_mode"): vol.In(["auto", "local", "online"]),
+    vol.Optional("workspace_origin"): str,
 })
 @websocket_api.async_response
 async def handle(hass, connection, msg):
@@ -35,7 +36,8 @@ async def handle(hass, connection, msg):
             raise Unauthorized()
         entry = hass.config_entries.async_get_entry(msg["config_entry_id"])
         operation = msg["operation"]
-        audience, workspace = browser_connection(entry.data, msg.get("audience"), msg.get("workspace_mode", "auto"))
+        mode = msg.get("workspace_mode", "auto")
+        audience, workspace = browser_connection(entry.data, msg.get("audience"), mode, msg.get("workspace_origin"))
         if operation == "status":
             linked = actor in runtime.links
             if linked:
@@ -43,7 +45,8 @@ async def handle(hass, connection, msg):
                     await runtime.client.request("capabilities", {}, runtime.links[actor])
                 except CompanionError:
                     linked = False
-            result = {"linked": linked, "workspace_origin": workspace, "version": 1}
+            result = {"linked": linked, "workspace_origin": workspace,
+                "workspace_origins": workspace_origins(entry.data, audience, mode), "version": 1}
         elif operation == "pair":
             async with runtime.lock:
                 runtime.pending = {key: value for key, value in runtime.pending.items() if value["expires_local"] > monotonic()}

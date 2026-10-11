@@ -21,6 +21,7 @@ client = sys.modules[f"{package.__name__}.client"]
 class Response:
     def __init__(self, status=200, blocks=None):
         self.status = status
+        self.headers = {"Allow":"POST"} if status == 405 else {}
         self.blocks = blocks or [b'{"ok":true}']
         self.content = self
     async def __aenter__(self):
@@ -37,6 +38,9 @@ class Session:
         self.response = response
         self.calls = []
     def post(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return self.response
+    def get(self, url, **kwargs):
         self.calls.append((url, kwargs))
         return self.response
 
@@ -83,3 +87,20 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         for value in ("ftp://server", "http://user:secret@server", "http://server/path", "http://server?token=secret", "http://server/#token", "http://server:99999", "http://server\n"):
             with self.assertRaises(ValueError):
                 client.web_origin(value, allow_http=True)
+
+    async def test_compatibility_probe_is_read_only_and_requires_the_new_post_route(self):
+        session = Session(Response(405))
+        await client.CompanionClient(session,"http://clm-api:8080").check_transport()
+        self.assertEqual("http://clm-api:8080/api/companion-transport/installations/origins",session.calls[0][0])
+        self.assertNotIn("headers",session.calls[0][1])
+        self.assertFalse(session.calls[0][1]["allow_redirects"])
+        with self.assertRaises(client.CompanionError) as error:
+            await client.CompanionClient(Session(Response(404)),"http://clm-api:8080").check_transport()
+        self.assertEqual("unsupported_server",error.exception.reason)
+
+    async def test_invalid_backend_response_and_wrong_service_have_specific_neutral_reasons(self):
+        for response, reason in ((Response(404),"not_companion_api"),(Response(200,[b'<html>web app</html>']),"invalid_server_response")):
+            with self.assertRaises(client.CompanionError) as error:
+                await client.CompanionClient(Session(response),"http://clm-api:8080").request("installations",{})
+            self.assertEqual(reason,error.exception.reason)
+            self.assertEqual("",str(error.exception))

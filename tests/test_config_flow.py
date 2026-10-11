@@ -53,7 +53,7 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
         self.flow._abort_if_unique_id_configured = Mock()
         self.input = {"api_origin": "http://clm-api:8080", "workspace_origin": "https://clm.example", "workspace_local_origin": "http://192.168.1.20:4200"}
         self.origins = ["http://192.168.1.10:8123", "https://ha.example"]
-        self.client = Mock(request=AsyncMock(return_value={"version": 1, "audiences": self.origins, "installation": "installation", "credential": "transport"}))
+        self.client = Mock(check_transport=AsyncMock(), request=AsyncMock(return_value={"version": 1, "audiences": self.origins, "installation": "installation", "credential": "transport"}))
         self.discovery = patch.object(flow_module, "discover_origins", return_value=(self.origins, self.origins[0]))
         self.transport = patch.object(flow_module, "CompanionClient", return_value=self.client)
         self.discovery.start(); self.transport.start()
@@ -87,3 +87,35 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
         self.client.request.return_value = {"version": 1, "installation": "installation", "credential": "transport"}
         result = await self.flow.async_step_user(self.input)
         self.assertEqual("unsupported_version", result["reason"])
+
+    async def test_missing_schemes_mark_each_wrong_field_without_requesting_the_server(self):
+        result = await self.flow.async_step_user({**self.input, "api_origin":"192.168.1.20:8080", "workspace_local_origin":"clm.local"})
+        self.assertEqual({"api_origin":"missing_scheme", "workspace_local_origin":"missing_scheme"}, result["errors"])
+        self.client.check_transport.assert_not_called()
+        self.client.request.assert_not_called()
+
+    async def test_invalid_path_identifies_only_the_web_field_and_preserves_other_inputs(self):
+        result = await self.flow.async_step_user({**self.input, "workspace_origin":"https://clm.example/api"})
+        self.assertEqual({"workspace_origin":"invalid_url"}, result["errors"])
+        self.client.request.assert_not_called()
+
+    async def test_old_running_backend_is_explained_at_its_field_before_creating_state(self):
+        self.client.check_transport.side_effect = flow_module.CompanionError("unsupported_server")
+        result = await self.flow.async_step_user(self.input)
+        self.assertEqual({"api_origin":"unsupported_server"}, result["errors"])
+        self.client.request.assert_not_called()
+
+    async def test_optional_ha_overrides_are_hidden_unless_advanced_or_discovery_fails(self):
+        result = await self.flow.async_step_user()
+        self.assertNotIn("extra_ha_origins", {key.schema for key in result["data_schema"].schema})
+        self.flow.show_advanced_options = True
+        result = await self.flow.async_step_user()
+        self.assertIn("extra_ha_origins", {key.schema for key in result["data_schema"].schema})
+
+    async def test_hidden_saved_ha_overrides_survive_reconfiguration(self):
+        entry = types.SimpleNamespace(data={**self.input, "auth_token":"transport", "ha_origin":"https://ha.example", "ha_origins":self.origins, "extra_ha_origins":["https://other-ha.example"]})
+        self.flow._get_reconfigure_entry = Mock(return_value=entry)
+        self.flow.async_update_reload_and_abort = Mock(return_value={})
+        self.client.request.return_value = {"version":1,"audiences":self.origins+["https://other-ha.example"]}
+        await self.flow.async_step_reconfigure(self.input)
+        self.assertEqual(["https://other-ha.example"], self.flow.async_update_reload_and_abort.call_args.kwargs["data_updates"]["extra_ha_origins"])

@@ -4,43 +4,55 @@
     "step": {
       "user": {
         "title": "Connect CLM",
-        "description": "Connect Home Assistant to the CLM server, then link your own account from the CLM card. Server addresses are used by HA; web app addresses are used by your browser. Home Assistant browser addresses are detected from its network settings. Enter base URLs without paths. Use HTTPS for online access; HTTP is supported for a trusted local or Docker network.\n\nDetected Home Assistant browser addresses: {ha_urls}",
+        "description": "Home Assistant connects to the backend. Your browser uses the web app URL to link your account and display CLM. Include http:// or https:// in every address.\n\nDetected Home Assistant URLs: {ha_urls}",
         "data": {
-          "api_origin": "CLM server URL",
-          "workspace_origin": "CLM web app URL (online / default)",
-          "workspace_local_origin": "CLM web app URL (local, optional)",
-          "extra_ha_origins": "Additional Home Assistant browser URLs (optional)"
+          "api_origin": "CLM backend URL",
+          "workspace_origin": "CLM web app URL (default)",
+          "workspace_local_origin": "Local CLM web app URL (optional)",
+          "workspace_local_fallback_origin": "Local IP fallback URL (optional)",
+          "extra_ha_origins": "Other Home Assistant URLs (advanced)"
         },
         "data_description": {
-          "api_origin": "The CLM backend address reachable from Home Assistant. HA uses it to link accounts and send actions. On a shared Docker network, use the CLM backend service name and its container port, for example http://clm-api:8080. Do not append /api. This address does not need to be reachable by your browser.",
-          "workspace_origin": "The address where you open CLM in your browser, for example https://clm.example.com. The card uses it to approve account links and display the CLM workspace. It must be reachable by your browser. If CLM serves its API and web app together, this may match the server URL. For a local-only setup, enter your local web app URL here.",
-          "workspace_local_origin": "The alternative CLM web app address reachable on your home network, for example http://192.168.1.20:4200. Automatic mode uses it when HA is opened at its internal URL. Leave empty to always use the default URL. An HTTPS HA dashboard can only embed an HTTPS CLM web app. Docker service names generally cannot be reached by your browser.",
-          "extra_ha_origins": "Normally leave empty: HA supplies its internal, external and cloud URLs. Add only other addresses where you open this same HA installation, for example https://ha.example.com. CLM needs these exact addresses to restrict embedded authorization to your HA. Configure HA network URLs first, and reconfigure CLM after changing them."
+          "api_origin": "The backend address HA can reach, for example http://clm-api:8080 on a shared Docker network. Use the backend service name and container port, or its IP and published port. Do not add /api.",
+          "workspace_origin": "Where you open CLM in a browser, for example https://clm.example.com. This opens account approval and the embedded card; it does not register another server. For local-only use, enter your local web URL here.",
+          "workspace_local_origin": "Optional browser URL on your home network, for example https://clm.local. Automatic mode tries this address, its IP fallback, then the default URL from each device. With HTTPS HA, this URL must also use HTTPS.",
+          "workspace_local_fallback_origin": "A second local web app URL for devices that cannot resolve the local hostname, for example https://192.168.1.20:8443. Use the frontend port. HTTPS requires a certificate your device trusts for this IP. Leave empty if the default URL works everywhere.",
+          "extra_ha_origins": "Normally leave empty. HA supplies its internal, external and cloud URLs. Add another full address only if you open this same HA installation there. These are HA addresses, not CLM addresses, and restrict where embedded authorization is accepted."
         }
       },
       "reconfigure": {
         "title": "Reconfigure CLM addresses",
-        "description": "Connect Home Assistant to the CLM server, then link your own account from the CLM card. Server addresses are used by HA; web app addresses are used by your browser. Home Assistant browser addresses are detected from its network settings. Enter base URLs without paths. Use HTTPS for online access; HTTP is supported for a trusted local or Docker network.\n\nDetected Home Assistant browser addresses: {ha_urls}",
+        "description": "Home Assistant connects to the backend. Your browser uses the web app URL to link your account and display CLM. Include http:// or https:// in every address.\n\nDetected Home Assistant URLs: {ha_urls}",
         "data": {
-          "api_origin": "CLM server URL",
-          "workspace_origin": "CLM web app URL (online / default)",
-          "workspace_local_origin": "CLM web app URL (local, optional)",
-          "extra_ha_origins": "Additional Home Assistant browser URLs (optional)"
+          "api_origin": "CLM backend URL",
+          "workspace_origin": "CLM web app URL (default)",
+          "workspace_local_origin": "Local CLM web app URL (optional)",
+          "workspace_local_fallback_origin": "Local IP fallback URL (optional)",
+          "extra_ha_origins": "Other Home Assistant URLs (advanced)"
         },
         "data_description": {
-          "api_origin": "The CLM backend address reachable from Home Assistant. HA uses it to link accounts and send actions. On a shared Docker network, use the CLM backend service name and its container port, for example http://clm-api:8080. Do not append /api. This address does not need to be reachable by your browser.",
-          "workspace_origin": "The address where you open CLM in your browser, for example https://clm.example.com. The card uses it to approve account links and display the CLM workspace. It must be reachable by your browser. If CLM serves its API and web app together, this may match the server URL. For a local-only setup, enter your local web app URL here.",
-          "workspace_local_origin": "The alternative CLM web app address reachable on your home network, for example http://192.168.1.20:4200. Automatic mode uses it when HA is opened at its internal URL. Leave empty to always use the default URL. An HTTPS HA dashboard can only embed an HTTPS CLM web app. Docker service names generally cannot be reached by your browser.",
-          "extra_ha_origins": "Normally leave empty: HA supplies its internal, external and cloud URLs. Add only other addresses where you open this same HA installation, for example https://ha.example.com. CLM needs these exact addresses to restrict embedded authorization to your HA. Configure HA network URLs first, and reconfigure CLM after changing them."
+          "api_origin": "The backend address HA can reach, for example http://clm-api:8080 on a shared Docker network. Use the backend service name and container port, or its IP and published port. Do not add /api.",
+          "workspace_origin": "Where you open CLM in a browser, for example https://clm.example.com. This opens account approval and the embedded card; it does not register another server. For local-only use, enter your local web URL here.",
+          "workspace_local_origin": "Optional browser URL on your home network, for example https://clm.local. Automatic mode tries this address, its IP fallback, then the default URL from each device. With HTTPS HA, this URL must also use HTTPS.",
+          "workspace_local_fallback_origin": "A second local web app URL for devices that cannot resolve the local hostname, for example https://192.168.1.20:8443. Use the frontend port. HTTPS requires a certificate your device trusts for this IP. Leave empty if the default URL works everywhere.",
+          "extra_ha_origins": "Normally leave empty. HA supplies its internal, external and cloud URLs. Add another full address only if you open this same HA installation there. These are HA addresses, not CLM addresses, and restrict where embedded authorization is accepted."
         }
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to the CLM server. Check the server URL and connectivity from Home Assistant.",
-      "invalid_origin": "Enter HTTP or HTTPS base URLs without paths, credentials, query parameters or fragments.",
+      "cannot_connect": "Home Assistant could not reach this backend address. Check the backend container, service name and port from the HA network.",
       "no_ha_url": "No Home Assistant browser address is available. Configure HA internal/external URLs in network settings, or add a browser URL below.",
       "too_many_origins": "A maximum of ten Home Assistant browser addresses is supported.",
-      "backend_changed": "To connect to a different CLM server, add a new integration connection."
+      "backend_changed": "To connect to a different CLM server, add a new integration connection.",
+      "missing_scheme": "This address is missing http:// or https://. Include it, for example http://192.168.1.20:8080.",
+      "invalid_url": "Enter a full HTTP or HTTPS address with a valid port, without paths, usernames, query parameters or fragments.",
+      "unsupported_server": "The running CLM backend is too old for this setup. Update and recreate the backend container; a HACS update does not update that server.",
+      "not_companion_api": "This address does not expose the required CLM companion API. Check that it is the backend service and port.",
+      "server_denied": "The backend refused this connection. Check its authentication and network access configuration.",
+      "server_redirect": "This backend address redirects requests. Enter its direct URL and check the proxy configuration.",
+      "server_error": "The backend returned a server error. Check the CLM backend logs.",
+      "server_rejected": "The backend rejected setup. Check that the running backend image is up to date.",
+      "invalid_server_response": "This address did not return a valid CLM API response. Check that it points to the backend, rather than the web app."
     },
     "abort": {
       "already_configured": "This CLM server connection already exists. Use Reconfigure to change its browser addresses.",

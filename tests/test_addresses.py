@@ -62,3 +62,24 @@ class AddressTests(unittest.TestCase):
         network.get_url = Mock(side_effect=network.NoURLAvailableError)
         with patch.dict(sys.modules, {"homeassistant.helpers.network": network}):
             self.assertEqual(([], None), addresses.discover_origins(object()))
+
+    def test_local_dns_fallback_and_default_are_ordered_and_exactly_approved(self):
+        self.data["workspace_local_origin"]="http://clm.local"
+        self.data["workspace_local_fallback_origin"]="http://192.168.1.20:4200"
+        self.assertEqual(["http://clm.local","http://192.168.1.20:4200","https://clm.example"],addresses.workspace_origins(self.data,self.data["ha_origin"]))
+        self.assertEqual("http://192.168.1.20:4200",addresses.browser_connection(self.data,self.data["ha_origin"],"auto","http://192.168.1.20:4200")[1])
+        with self.assertRaises(ValueError):
+            addresses.browser_connection(self.data,self.data["ha_origin"],"auto","http://other-server")
+        with self.assertRaises(ValueError):
+            addresses.browser_connection(self.data,"https://ha.example","online","http://192.168.1.20:4200")
+
+    def test_https_never_offers_a_plain_http_ip_fallback(self):
+        self.data["internal_ha_origin"]="https://ha.example"
+        self.data["workspace_local_origin"]="https://clm.local"
+        self.data["workspace_local_fallback_origin"]="http://192.168.1.20:4200"
+        self.assertEqual(["https://clm.local","https://clm.example"],addresses.workspace_origins(self.data,"https://ha.example"))
+
+    def test_public_ha_address_does_not_prevent_reachable_local_workspace_selection(self):
+        self.data["workspace_local_origin"]="https://clm.local"
+        self.data["workspace_local_fallback_origin"]="https://192.168.1.20:8443"
+        self.assertEqual(["https://clm.local","https://192.168.1.20:8443","https://clm.example"],addresses.workspace_origins(self.data,"https://ha.example"))

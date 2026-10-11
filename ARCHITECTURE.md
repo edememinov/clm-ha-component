@@ -33,10 +33,31 @@ HA network-helper discovery and exact approved-origin selection. Internal,
 external and cloud URLs are discovered at setup/reconfigure, not trusted from
 WebSocket payloads. The browser supplies its current audience and presentation
 mode; `websocket.py` validates both and selects only configured workspace URLs.
+It also validates the browser's selected fallback against the bounded candidate
+list; arbitrary caller-supplied workspace URLs are rejected. Automatic mode
+offers local hostname, local IP fallback and default in order. HTTPS audiences
+receive HTTPS candidates only, irrespective of whether HA uses a public URL.
 Mixed HTTPS/HTTP embedding is rejected, with an HTTPS default fallback in auto
 mode. Existing entries retain their one approved audience until reconfigured.
 Reconfiguration updates the remote approved origins using installation transport
 authority and reloads HA without replacing account storage or installation IDs.
+
+Each URL is validated independently in `config_flow.py`; native form errors are
+keyed to the affected field. Extra HA overrides are advanced-only unless
+discovery fails, and hidden saved overrides survive reconfiguration. The client
+uses a read-only GET probe of the POST-only origins route to detect older running
+backends before registration, without cookies/account authority or persistent
+side effects. Error reasons are bounded codes; response bodies and secrets never
+enter UI errors. Labels/help remain native translation resources and require a
+fresh browser translation session after updating/restarting the integration.
+
+Verification for 0.1.2: 35 HA tests cover per-field URL errors, advanced override
+visibility/preservation, read-only compatibility checks, candidate membership and
+HTTPS filtering. Native HA frontend controls rendered with fixture schemas at
+1440/768/390 px placed errors beside the correct fields, hid advanced overrides
+and showed no horizontal overflow. This uses the platform's actual frontend
+components; it is not an authenticated live setup/reconfiguration test. Captures
+and fixture scripts stay outside repositories in `E:/CLM/.tmp/ha-address-native-ui`.
 
 Reference documentation:
 
