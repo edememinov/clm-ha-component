@@ -54,6 +54,16 @@ is a browser launch/embed destination, not a second server registration. For
 consistent local/online access, a single HTTPS hostname with split DNS avoids
 device-specific local hostname resolution and preserves certificate names.
 
+## Releases
+
+Pushes to `main` automatically validate the integration and publish a stable
+GitHub release using the version in `custom_components/clm/manifest.json`.
+Component changes require a version bump; the workflow rejects attempts to
+replace an already published version. Documentation-only pushes and reruns do
+not duplicate releases. A failed draft can be resumed for the same commit.
+The workflow can also be started manually from GitHub Actions. No integration
+archive or shared browser-extension package is built.
+
 No installation token can browse or execute CLM items. No administrator fallback
 exists. Account links use an expiring challenge approved in signed-in CLM.
 Personal PINs remain in the embedded view's memory and never enter HA actions,

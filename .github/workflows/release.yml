@@ -1,0 +1,67 @@
+name: Validate and release integration
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: python -m pip install -r requirements-test.txt
+      - run: python -m unittest discover -s tests
+      - run: python -m compileall -q custom_components/clm
+
+  release:
+    needs: validate
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Publish the validated integration version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(python -c "import json; print(json.load(open('custom_components/clm/manifest.json'))['version'])")
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected a stable semantic version in manifest.json'; exit 1; }
+          tag="v$version"
+          if state=$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null); then
+            if [[ "$state" == 'false' ]]; then
+              git fetch origin "refs/tags/$tag:refs/tags/$tag"
+              if ! git diff --quiet "$tag" HEAD -- custom_components/clm; then
+                echo 'Integration code changed after this release. Bump manifest.json version before publishing.'
+                exit 1
+              fi
+              echo "$tag is already published with the same integration files."
+              exit 0
+            fi
+            target=$(gh release view "$tag" --json targetCommitish --jq '.targetCommitish')
+            [[ "$target" == "$GITHUB_SHA" ]] || { echo 'An existing draft targets another commit. Resolve it before retrying.'; exit 1; }
+          else
+            cat > release-notes.md <<'NOTES'
+          Native companion integration update.
+
+          Restart Home Assistant after updating and reload the browser to refresh setup labels. Update the companion backend and workspace card alongside the integration when connection features change.
+          NOTES
+            gh release create "$tag" --draft --target "$GITHUB_SHA" --title "$version" --notes-file release-notes.md
+          fi
+          gh release edit "$tag" --draft=false --latest

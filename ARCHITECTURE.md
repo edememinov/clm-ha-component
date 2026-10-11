@@ -59,6 +59,13 @@ and showed no horizontal overflow. This uses the platform's actual frontend
 components; it is not an authenticated live setup/reconfiguration test. Captures
 and fixture scripts stay outside repositories in `E:/CLM/.tmp/ha-address-native-ui`.
 
+`.github/workflows/release.yml` validates push/PR changes and publishes releases
+only after successful checks on main. The manifest owns the release version;
+published tags are immutable, and component changes without a version bump fail.
+Release creation uses the workflow's scoped contents-write token, starts as a
+draft and publishes only after preparation. Reruns skip identical published
+versions; no archive packaging or execution credentials are involved.
+
 Reference documentation:
 
 - https://developers.home-assistant.io/docs/auth_permissions/
