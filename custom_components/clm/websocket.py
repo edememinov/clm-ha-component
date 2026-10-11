@@ -6,6 +6,7 @@ from homeassistant.components import websocket_api
 from homeassistant.exceptions import HomeAssistantError, Unauthorized
 
 from .client import CompanionError
+from .addresses import browser_connection
 
 
 def register(hass):
@@ -18,6 +19,8 @@ def register(hass):
     vol.Required("operation"): vol.In(["status", "pair", "exchange", "view", "bindings", "invoke", "revoke"]),
     vol.Optional("nonce"): str,
     vol.Optional("binding"): str,
+    vol.Optional("audience"): str,
+    vol.Optional("workspace_mode"): vol.In(["auto", "local", "online"]),
 })
 @websocket_api.async_response
 async def handle(hass, connection, msg):
@@ -32,6 +35,7 @@ async def handle(hass, connection, msg):
             raise Unauthorized()
         entry = hass.config_entries.async_get_entry(msg["config_entry_id"])
         operation = msg["operation"]
+        audience, workspace = browser_connection(entry.data, msg.get("audience"), msg.get("workspace_mode", "auto"))
         if operation == "status":
             linked = actor in runtime.links
             if linked:
@@ -39,7 +43,7 @@ async def handle(hass, connection, msg):
                     await runtime.client.request("capabilities", {}, runtime.links[actor])
                 except CompanionError:
                     linked = False
-            result = {"linked": linked, "workspace_origin": entry.data["workspace_origin"], "version": 1}
+            result = {"linked": linked, "workspace_origin": workspace, "version": 1}
         elif operation == "pair":
             async with runtime.lock:
                 runtime.pending = {key: value for key, value in runtime.pending.items() if value["expires_local"] > monotonic()}
@@ -49,7 +53,7 @@ async def handle(hass, connection, msg):
                 if runtime.closed:
                     raise Unauthorized()
                 runtime.pending[actor] = {**result, "expires_local": monotonic() + 600}
-                result = {"approval_url": f"{entry.data['workspace_origin']}/companions/pair/{result['installation']}/{result['challenge']}"}
+                result = {"approval_url": f"{workspace}/companions/pair/{result['installation']}/{result['challenge']}"}
         elif operation == "exchange":
             async with runtime.lock:
                 pending = runtime.pending.get(actor)
@@ -68,8 +72,8 @@ async def handle(hass, connection, msg):
         else:
             token = await linked_user(hass, runtime, actor)
             if operation == "view":
-                result = await runtime.client.request("ui-sessions", {"nonce": msg.get("nonce", ""), "audience": entry.data["ha_origin"]}, token)
-                result["workspace_origin"] = entry.data["workspace_origin"]
+                result = await runtime.client.request("ui-sessions", {"nonce": msg.get("nonce", ""), "audience": audience}, token)
+                result["workspace_origin"] = workspace
             elif operation == "bindings":
                 result = await runtime.client.request("bindings/list", {}, token)
             elif operation == "invoke":
@@ -84,5 +88,7 @@ async def handle(hass, connection, msg):
         connection.send_result(msg["id"], result)
     except Unauthorized:
         connection.send_error(msg["id"], "unauthorized", "CLM request denied.")
+    except ValueError:
+        connection.send_error(msg["id"], "invalid_browser_address", "This Home Assistant address is not approved or the CLM web address cannot be embedded. Reconfigure CLM or choose another web address in the card editor.")
     except (CompanionError, HomeAssistantError, KeyError):
         connection.send_error(msg["id"], "clm_unavailable", "CLM request unavailable.")

@@ -13,11 +13,11 @@ class CompanionError(Exception):
     """Never attach a remote body, URL, token or arguments to this error."""
 
 
-def https_origin(value: str) -> str:
+def web_origin(value: str, *, allow_http: bool = False) -> str:
     if any(ord(character) <= 32 for character in value):
         raise ValueError("Use an HTTPS origin.")
     parsed = urlsplit(value)
-    if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
+    if (parsed.scheme not in (("https", "http") if allow_http else ("https",)) or not parsed.hostname or parsed.username or parsed.password
             or parsed.path not in ("", "/") or parsed.query or parsed.fragment):
         raise ValueError("Use an HTTPS origin.")
     if parsed.port is not None and not 1 <= parsed.port <= 65535:
@@ -25,15 +25,19 @@ def https_origin(value: str) -> str:
     return str(URL(value).origin())
 
 
+def https_origin(value: str) -> str:
+    return web_origin(value)
+
+
 class CompanionClient:
     """Credentials are supplied per call; no shared owner fallback exists."""
 
     def __init__(self, session, api_origin: str):
         self.session = session
-        self.origin = https_origin(api_origin)
+        self.origin = web_origin(api_origin, allow_http=True)
 
     async def request(self, route: str, payload: dict | list, credential: str | None = None) -> dict | list:
-        if route not in {"installations", "challenges", "challenges/exchange", "capabilities",
+        if route not in {"installations", "installations/origins", "challenges", "challenges/exchange", "capabilities",
                          "catalog/query", "bindings", "bindings/list", "bindings/invoke",
                          "ui-sessions", "revoke", "external-automations", "dispatches/poll", "dispatches/acknowledge"}:
             raise CompanionError()

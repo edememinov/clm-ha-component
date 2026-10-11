@@ -17,4 +17,7 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual("2026.10.0", json.loads((root / "hacs.json").read_text(encoding="utf-8"))["homeassistant"])
         strings = json.loads((component / "strings.json").read_text(encoding="utf-8"))
         self.assertEqual(strings, json.loads((component / "translations" / "en.json").read_text(encoding="utf-8")))
-        self.assertEqual({"api_origin", "workspace_origin", "ha_origin"}, set(strings["config"]["step"]["user"]["data"]))
+        fields = {"api_origin", "workspace_origin", "workspace_local_origin", "extra_ha_origins"}
+        for step in ("user", "reconfigure"):
+            self.assertEqual(fields, set(strings["config"]["step"][step]["data"]))
+            self.assertEqual(fields, set(strings["config"]["step"][step]["data_description"]))

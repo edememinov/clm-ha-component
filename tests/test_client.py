@@ -71,3 +71,15 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         for value in ("http://api.example", "https://user:secret@api.example", "https://api.example/path", "https://api.example?token=secret"):
             with self.assertRaises(ValueError):
                 client.https_origin(value)
+
+    async def test_internal_docker_transport_keeps_exact_endpoint_and_no_redirects(self):
+        session = Session(Response())
+        transport = client.CompanionClient(session, "http://clm-api:8080/")
+        await transport.request("capabilities", {}, "credential")
+        self.assertEqual("http://clm-api:8080/api/companion-transport/capabilities", session.calls[0][0])
+        self.assertFalse(session.calls[0][1]["allow_redirects"])
+
+    def test_explicit_http_origins_still_reject_non_web_urls_and_secrets(self):
+        for value in ("ftp://server", "http://user:secret@server", "http://server/path", "http://server?token=secret", "http://server/#token", "http://server:99999", "http://server\n"):
+            with self.assertRaises(ValueError):
+                client.web_origin(value, allow_http=True)

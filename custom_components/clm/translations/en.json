@@ -1,8 +1,51 @@
 {
   "title": "CLM",
   "config": {
-    "step": {"user": {"title": "Connect CLM", "description": "Configure secure transport, then link each account from the CLM card.", "data": {"api_origin": "CLM API origin", "workspace_origin": "CLM workspace origin", "ha_origin": "Home Assistant origin"}}},
-    "error": {"cannot_connect": "Unable to connect to CLM.", "invalid_origin": "Enter HTTPS origins without paths or credentials."},
-    "abort": {"already_configured": "This connection already exists.", "unsupported_version": "The companion API version is unsupported."}
+    "step": {
+      "user": {
+        "title": "Connect CLM",
+        "description": "Connect Home Assistant to the CLM server, then link your own account from the CLM card. Server addresses are used by HA; web app addresses are used by your browser. Home Assistant browser addresses are detected from its network settings. Enter base URLs without paths. Use HTTPS for online access; HTTP is supported for a trusted local or Docker network.\n\nDetected Home Assistant browser addresses: {ha_urls}",
+        "data": {
+          "api_origin": "CLM server URL",
+          "workspace_origin": "CLM web app URL (online / default)",
+          "workspace_local_origin": "CLM web app URL (local, optional)",
+          "extra_ha_origins": "Additional Home Assistant browser URLs (optional)"
+        },
+        "data_description": {
+          "api_origin": "The CLM backend address reachable from Home Assistant. HA uses it to link accounts and send actions. On a shared Docker network, use the CLM backend service name and its container port, for example http://clm-api:8080. Do not append /api. This address does not need to be reachable by your browser.",
+          "workspace_origin": "The address where you open CLM in your browser, for example https://clm.example.com. The card uses it to approve account links and display the CLM workspace. It must be reachable by your browser. If CLM serves its API and web app together, this may match the server URL. For a local-only setup, enter your local web app URL here.",
+          "workspace_local_origin": "The alternative CLM web app address reachable on your home network, for example http://192.168.1.20:4200. Automatic mode uses it when HA is opened at its internal URL. Leave empty to always use the default URL. An HTTPS HA dashboard can only embed an HTTPS CLM web app. Docker service names generally cannot be reached by your browser.",
+          "extra_ha_origins": "Normally leave empty: HA supplies its internal, external and cloud URLs. Add only other addresses where you open this same HA installation, for example https://ha.example.com. CLM needs these exact addresses to restrict embedded authorization to your HA. Configure HA network URLs first, and reconfigure CLM after changing them."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure CLM addresses",
+        "description": "Connect Home Assistant to the CLM server, then link your own account from the CLM card. Server addresses are used by HA; web app addresses are used by your browser. Home Assistant browser addresses are detected from its network settings. Enter base URLs without paths. Use HTTPS for online access; HTTP is supported for a trusted local or Docker network.\n\nDetected Home Assistant browser addresses: {ha_urls}",
+        "data": {
+          "api_origin": "CLM server URL",
+          "workspace_origin": "CLM web app URL (online / default)",
+          "workspace_local_origin": "CLM web app URL (local, optional)",
+          "extra_ha_origins": "Additional Home Assistant browser URLs (optional)"
+        },
+        "data_description": {
+          "api_origin": "The CLM backend address reachable from Home Assistant. HA uses it to link accounts and send actions. On a shared Docker network, use the CLM backend service name and its container port, for example http://clm-api:8080. Do not append /api. This address does not need to be reachable by your browser.",
+          "workspace_origin": "The address where you open CLM in your browser, for example https://clm.example.com. The card uses it to approve account links and display the CLM workspace. It must be reachable by your browser. If CLM serves its API and web app together, this may match the server URL. For a local-only setup, enter your local web app URL here.",
+          "workspace_local_origin": "The alternative CLM web app address reachable on your home network, for example http://192.168.1.20:4200. Automatic mode uses it when HA is opened at its internal URL. Leave empty to always use the default URL. An HTTPS HA dashboard can only embed an HTTPS CLM web app. Docker service names generally cannot be reached by your browser.",
+          "extra_ha_origins": "Normally leave empty: HA supplies its internal, external and cloud URLs. Add only other addresses where you open this same HA installation, for example https://ha.example.com. CLM needs these exact addresses to restrict embedded authorization to your HA. Configure HA network URLs first, and reconfigure CLM after changing them."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the CLM server. Check the server URL and connectivity from Home Assistant.",
+      "invalid_origin": "Enter HTTP or HTTPS base URLs without paths, credentials, query parameters or fragments.",
+      "no_ha_url": "No Home Assistant browser address is available. Configure HA internal/external URLs in network settings, or add a browser URL below.",
+      "too_many_origins": "A maximum of ten Home Assistant browser addresses is supported.",
+      "backend_changed": "To connect to a different CLM server, add a new integration connection."
+    },
+    "abort": {
+      "already_configured": "This CLM server connection already exists. Use Reconfigure to change its browser addresses.",
+      "unsupported_version": "Update the CLM backend: it must support multiple Home Assistant browser addresses.",
+      "reconfigure_successful": "CLM addresses updated. Your account links are preserved."
+    }
   }
 }
