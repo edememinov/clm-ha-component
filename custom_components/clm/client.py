@@ -58,12 +58,12 @@ class CompanionClient:
     async def request(self, route: str, payload: dict | list, credential: str | None = None) -> dict | list:
         if route not in {"installations", "installations/origins", "challenges", "challenges/exchange", "capabilities",
                          "catalog/query", "bindings", "bindings/list", "bindings/invoke",
-                         "ui-sessions", "revoke", "external-automations", "dispatches/poll", "dispatches/acknowledge",
+                         "ui-sessions", "revoke", "external-automations", "external-events", "dispatches/poll", "dispatches/wait", "dispatches/acknowledge",
                          "native/actions", "native/devices"}:
             raise CompanionError()
         headers = {"Authorization": f"Bearer {credential}"} if credential else {}
         try:
-            async with asyncio.timeout(REQUEST_TIMEOUT):
+            async with asyncio.timeout(330 if route == "external-events" else REQUEST_TIMEOUT):
                 async with self.session.post(f"{self.origin}/api/companion-transport/{route}",
                                              json=payload, headers=headers, allow_redirects=False) as response:
                     if response.status != 200:

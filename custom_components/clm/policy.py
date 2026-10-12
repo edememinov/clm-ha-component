@@ -42,5 +42,9 @@ class Authority:
     def remove(self, context_id: str) -> None:
         self._runs.pop(context_id, None)
 
+    def contains(self, context_id: str | None) -> bool:
+        self._prune()
+        return context_id in self._runs
+
     def _prune(self) -> None:
         self._runs = {key: value for key, value in self._runs.items() if value.expires > self._clock()}

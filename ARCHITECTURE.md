@@ -132,3 +132,44 @@ installation credential, saved workflow or shared admin fallback authorizes thes
 actions. `docs/native-actions.md` owns setup, inputs, examples and delivery limits.
 The backend owns authorization/selection/queueing; the existing Windows worker
 opens validated URLs with fixed normal/private browser arguments.
+
+## Immediate delivery and selected external triggers — 0.2.1
+
+`bridge.py` composes independent catalogue publication, long-poll delivery and
+automation-start event forwarding in one cancellable TaskGroup. Delivery reserves
+the existing persisted queue once; bounded concurrent tasks do not wait behind a
+long automation. The new `/dispatches/wait` lease lasts at most 20 seconds and
+wakes on queue commit. Empty lease responses reconnect immediately; network
+failures back off for one second. Catalogue refresh remains every 30 seconds.
+
+The native `automation_triggered` listener checks the enabled entity's current
+context, hashes its current definition and suppresses bridge-origin contexts
+through `Authority.contains`. It queues only entity ID, fingerprint and opaque
+context key; a bounded queue of 100 and at most 20 event-forwarding tasks prevent
+unbounded work. Each linked active account must have HA entity-control permission;
+CLM further requires that account's reviewed reference and an enabled non-personal
+workflow explicitly selecting it. Anonymous ordinary service ingress stays denied.
+No event label, PIN or execution arguments are forwarded, and effects are never
+retried on network failure. Unload cancels tasks and removes the event listener.
+
+`client.py` owns the two additive transport routes. Event calls have a 330-second
+completion timeout for existing workflow delays; this is not a trigger latency
+interval. The backend starts matching workflows concurrently under its current
+execution limits. Backend/adapter upgrade together is required. Current native
+HA action schemas, controls, translations and stored links are unchanged.
+
+Local tests cover millisecond event forwarding/concurrent delivery, synthetic and
+bridge-context suppression, inactive/unpermitted users, cancellation/unsubscribe
+and failed acknowledgements without replay. Backend local TestServer/SQLite tests
+measure both directions and verify stable concurrent approvals and event replay.
+Production is excluded from verification by user instruction.
+
+Verification: 56 local component tests passed. `test_bridge_delivery.py` was added
+for event forwarding, concurrent delivery/account fan-out, lifecycle and denial
+checks; existing platform/service/policy tests remain passing. Final fake-I/O
+measurements were 2.065 ms from event callback to outbound request and 3.337 ms
+from wait response to concurrent execution. The corresponding real local CLM
+TestServer/SQLite measurements were 24.031 ms incoming and 51.015 ms outgoing.
+No production access or publication was performed. Event semantics were checked
+against [Core 2026.10.0 automation source](https://github.com/home-assistant/core/blob/2026.10.0/homeassistant/components/automation/__init__.py):
+the start event is emitted after conditions pass and the action script starts.

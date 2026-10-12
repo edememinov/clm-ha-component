@@ -25,6 +25,21 @@ Updating HACS alone does not install or upgrade the Windows worker.
 
 ## Run CLM workflows
 
+To start a CLM workflow when an existing HA automation fires, install component
+**0.2.1 or later** and the matching updated CLM backend/frontend. Link your account,
+approve that HA automation under **CLM Settings → Companion connections**, then
+open the CLM workflow's **Triggers** section and select **Home Assistant automation**
+and the approved automation. Save and enable the workflow. Its actions start when
+HA starts that automation; no extra HA action, MQTT configuration or browser tab
+is required. HA conditions still decide whether its automation starts.
+
+This event path is immediate. The component also holds a bounded delivery request
+open so CLM button commands wake it immediately, independently of the 30-second
+catalogue refresh. A slow automation does not block new delivery. Approving the
+same configuration renews its stable binding instead of creating duplicate picker
+items. Editing the HA definition requires approval again. Use non-personal CLM
+workflows without nested workflow, external automation or Personal Mode actions.
+
 For a dashboard button or an authenticated action, approve the workflow in the
 CLM card workspace, use **List approved CLM bindings** to find its binding, then
 call **Run CLM workflow** (`clm.run_workflow`). For schedules or sensor triggers,

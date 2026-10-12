@@ -5,7 +5,7 @@ import hashlib
 import json
 import time
 
-from homeassistant.core import Context
+from homeassistant.core import Context, callback
 from homeassistant.auth.permissions.const import POLICY_CONTROL
 from homeassistant.components.automation import DATA_COMPONENT
 from homeassistant.exceptions import HomeAssistantError
@@ -43,6 +43,63 @@ def bindings_for(config, entry_id: str) -> list[str]:
 
 
 async def bridge(hass, entry):
+    # Catalogue refresh must never delay command delivery or an in-flight automation.
+    async with asyncio.TaskGroup() as tasks:
+        tasks.create_task(publish_catalogue(hass, entry))
+        tasks.create_task(receive_dispatches(hass, entry))
+        tasks.create_task(forward_events(hass, entry))
+
+
+async def forward_events(hass, entry):
+    """Forward real automation starts under explicit CLM trigger approvals."""
+    runtime = entry.runtime_data
+    queue = asyncio.Queue(maxsize=100)
+
+    @callback
+    def started(event):
+        if runtime.closed or runtime.authority.contains(event.context.parent_id) or runtime.authority.contains(event.context.id):
+            return
+        component = hass.data.get(DATA_COMPONENT)
+        entity = component.get_entity(event.data.get("entity_id")) if component else None
+        # Reject synthetic bus events that do not describe the entity's current run.
+        if entity is None or not entity.is_on or entity.context.id != event.context.id or not isinstance(entity.raw_config, dict):
+            return
+        try:
+            queue.put_nowait({"automation": entity.entity_id, "fingerprint": fingerprint(entity.raw_config), "key": event.context.id})
+        except asyncio.QueueFull:
+            pass
+
+    unsubscribe = hass.bus.async_listen("automation_triggered", started)
+    active = set()
+    try:
+        async with asyncio.TaskGroup() as tasks:
+            while True:
+                while len(active) >= 20:
+                    await asyncio.wait(active, return_when=asyncio.FIRST_COMPLETED)
+                payload = await queue.get()
+                task = tasks.create_task(forward_event(hass, runtime, payload))
+                active.add(task)
+                task.add_done_callback(active.discard)
+    finally:
+        unsubscribe()
+
+
+async def forward_event(hass, runtime, payload):
+    async def send(actor, credential):
+        user = await hass.auth.async_get_user(actor)
+        if runtime.closed or user is None or not user.is_active or not user.permissions.check_entity(payload["automation"], POLICY_CONTROL):
+            return
+        try:
+            await runtime.client.request("external-events", payload, credential)
+        except CompanionError:
+            # Unknown outcomes are not replayed; unapproved sources are refused by CLM.
+            pass
+    # Each explicitly linked account has its own trigger approvals. A slow workflow
+    # for one account must not postpone another account's event.
+    await asyncio.gather(*(send(actor, credential) for actor, credential in list(runtime.links.items())))
+
+
+async def publish_catalogue(hass, entry):
     """Bounded delivery; errors never log credentials, content or remote responses."""
     runtime = entry.runtime_data
     while True:
@@ -65,19 +122,47 @@ async def bridge(hass, entry):
                             continue
                         automations.append({"id": entity.entity_id, "label": str(entity.name or "Automation")[:128], "fingerprint": fingerprint(entity.raw_config)})
                     await runtime.client.request("external-automations", automations[:100], credential)
-            deliveries = await runtime.client.request("dispatches/poll", {}, entry.data["auth_token"])
-            # Poll reserves a delivery once. No retry can repeat an automation effect.
-            for delivery in deliveries:
-                accepted = False
-                try:
-                    await dispatch(hass, entry, delivery)
-                    accepted = True
-                except (CompanionError, ValueError, HomeAssistantError):
-                    pass
-                await runtime.client.request("dispatches/acknowledge", {"id": delivery["id"], "completed": accepted}, entry.data["auth_token"])
         except (CompanionError, HomeAssistantError):
             pass
         await asyncio.sleep(30)
+
+
+async def receive_dispatches(hass, entry):
+    runtime = entry.runtime_data
+    active = set()
+    try:
+        async with asyncio.TaskGroup() as tasks:
+            while True:
+                # Each response reserves at most 20 deliveries. Keep execution bounded.
+                while len(active) > 20:
+                    await asyncio.wait(active, return_when=asyncio.FIRST_COMPLETED)
+                try:
+                    deliveries = await runtime.client.request("dispatches/wait", {}, entry.data["auth_token"])
+                except CompanionError:
+                    await asyncio.sleep(1)
+                    continue
+                for delivery in deliveries:
+                    task = tasks.create_task(deliver(hass, entry, delivery))
+                    active.add(task)
+                    task.add_done_callback(active.discard)
+    finally:
+        for task in active:
+            task.cancel()
+
+
+async def deliver(hass, entry, delivery):
+    # Reservation is committed before delivery; acknowledgement is never retried.
+    accepted = False
+    runtime = entry.runtime_data
+    try:
+        await dispatch(hass, entry, delivery)
+        accepted = True
+    except (CompanionError, ValueError, HomeAssistantError):
+        pass
+    try:
+        await runtime.client.request("dispatches/acknowledge", {"id": delivery["id"], "completed": accepted}, entry.data["auth_token"])
+    except CompanionError:
+        pass
 
 
 async def dispatch(hass, entry, delivery):
