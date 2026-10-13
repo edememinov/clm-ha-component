@@ -106,6 +106,15 @@ class ServicesTests(unittest.IsolatedAsyncioTestCase):
         UUID(requests[-1].args[1]["key"])
         self.assertEqual("optional", self.calls["run_workflow"][1]["supports_response"])
 
+    async def test_notification_workflow_keeps_push_intent_and_credentials_inside_clm(self):
+        self.result.update(status="accepted", code=202, endpoint="private-endpoint", title="private-title", pin="private-pin")
+        result = await self.calls["run_workflow"][0](self.call())
+        self.assertEqual({"id", "status", "code", "duplicate"}, set(result))
+        invoked = self.client.request.call_args_list[-1]
+        self.assertEqual({"binding", "key"}, set(invoked.args[1]))
+        self.assertNotIn("notification", self.calls)
+        self.assertNotIn("endpoint", repr(result))
+
     async def test_wrong_kind_personal_and_unknown_bindings_cannot_run(self):
         for binding in ("leaf-binding", "private-binding", "unknown"):
             with self.assertRaises(Unauthorized):

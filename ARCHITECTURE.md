@@ -173,3 +173,14 @@ TestServer/SQLite measurements were 24.031 ms incoming and 51.015 ms outgoing.
 No production access or publication was performed. Event semantics were checked
 against [Core 2026.10.0 automation source](https://github.com/home-assistant/core/blob/2026.10.0/homeassistant/components/automation/__init__.py):
 the start event is emitted after conditions pass and the action script starts.
+
+## Browser notification workflows
+
+No new HA runtime owner: `execute_binding`/`run_workflow` retain linked-user provenance,
+opaque IDs, redacted bounded outcomes and the outbound workflow-cycle denial. Unattended
+schedules/sensors use the existing authorized MQTT trigger. CLM owns subscriptions,
+VAPID identity, device targeting and worker tap intent; HA never stores push keys or
+notification content. `docs/automation-execution/README.md` documents the additive
+workflow action. `test_services.py` checks that acceptance returns only the existing
+outcome fields and ingress contains only binding/key. See backend Web Push evidence
+for the real companion execution adapter and MQTT integration checks.

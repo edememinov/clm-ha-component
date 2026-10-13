@@ -103,3 +103,27 @@ The existing **Add approved action to automation** handoff is intended for permi
 - **Action missing:** update the component, restart HA and reload your browser to refresh native action translations.
 
 Native action and YAML syntax references: [HA integration service actions](https://developers.home-assistant.io/docs/dev_101_services/), [dashboard actions](https://www.home-assistant.io/dashboards/actions/), [MQTT publish](https://www.home-assistant.io/integrations/mqtt/#action-mqttpublish).
+
+## Device push notifications
+
+In CLM System / Devices, open the subscribing browser over trusted HTTPS, sign in and
+choose **Enable notifications**. iPhone/iPad require the browser-owned Home Screen install.
+The backend requires authentication, Webhooks use permission, and `WebPush__Subject` set
+to a contact such as `mailto:admin@example.test`. No push credentials belong in HA.
+
+Add **Send notification** to a CLM workflow. Choose a registered device with Push enabled
+(it may be offline), and a supported CLM destination. Save and approve that non-personal
+workflow through the existing account link. A signed-in user calls `clm.run_workflow` with
+its opaque approved binding. Schedules and sensor events use the workflow's generated
+MQTT trigger and authorized account key as described above. Starting a session remains
+a separate action and can precede the notification step. No new native notification
+service, entity, credential store or HA Companion App dependency is added.
+
+CLM sends fixed neutral lock-screen text. HA payloads contain only the binding/idempotency
+key or MQTT workflow trigger, never titles, URLs, PINs or subscription keys. Existing
+bridge cycle checks and revoked-binding/account checks still apply. Acceptance means
+the push provider accepted the request; it does not confirm display, a tap or startup.
+A tap opens CLM under normal login and Personal Mode guards. Internet access to browser
+push providers is required; CLM need not have a public inbound endpoint, but the phone
+must reach its frontend after a tap (possibly over VPN). Provider-accepted/displayed
+notifications can outlive revocation. Test Android/iOS delivery on physical devices.
