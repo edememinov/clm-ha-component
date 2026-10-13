@@ -3,6 +3,7 @@
 import probatio as vol
 
 from homeassistant import config_entries
+from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import selector
 
@@ -15,6 +16,11 @@ class ClmConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Configure the trusted transport, without an owner's execution credential."""
 
     VERSION = 1
+
+    @classmethod
+    def async_get_supported_subentry_types(cls, config_entry):
+        """Each allowed entity is a subentry: listed, and revoked by deleting it, under Devices & services."""
+        return {"access": AccessSubentryFlow}
 
     async def async_step_user(self, user_input=None):
         return await self._configure(user_input)
@@ -110,3 +116,40 @@ class ClmConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"ha_urls": ", ".join(discovered) or "None detected; configure HA network URLs or add an address below."},
             data_schema=self.add_suggested_values_to_schema(schema, {key: value for key, value in defaults.items() if value is not None}),
         )
+
+
+class AccessSubentryFlow(config_entries.ConfigSubentryFlow):
+    """An administrator sharing an entity with a linked CLM account without waiting to be asked."""
+
+    async def async_step_user(self, user_input=None):
+        from . import Runtime
+        from .entities import DOMAINS, offer, label_of
+        entry = self._get_entry()
+        runtime = entry.runtime_data
+        if not isinstance(runtime, Runtime):
+            return self.async_abort(reason="unavailable")
+        accounts = []
+        for actor in list(runtime.links):
+            user = await self.hass.auth.async_get_user(actor)
+            if user is not None and user.is_active:
+                accounts.append(selector.SelectOptionDict(value=actor, label=user.name or actor))
+        if not accounts:
+            return self.async_abort(reason="no_linked_accounts")
+        errors = {}
+        if user_input is not None:
+            actor, entity = user_input["account"], user_input["entity"]
+            try:
+                grant = await offer(self.hass, entry, actor, entity)
+            except Unauthorized:
+                errors["entity"] = "not_permitted"
+            except (CompanionError, KeyError):
+                errors["base"] = "cannot_connect"
+            else:
+                user = await self.hass.auth.async_get_user(actor)
+                return self.async_create_entry(title=f"{label_of(self.hass, entity)} · {user.name or 'CLM account'}",
+                                               data={"grant": grant, "actor": actor, "entity": entity}, unique_id=grant)
+        schema = vol.Schema({
+            vol.Required("entity"): selector.EntitySelector(selector.EntitySelectorConfig(domain=[*DOMAINS, "automation"])),
+            vol.Required("account", default=accounts[0]["value"]): selector.SelectSelector(selector.SelectSelectorConfig(options=accounts)),
+        })
+        return self.async_show_form(step_id="user", data_schema=self.add_suggested_values_to_schema(schema, user_input or {}), errors=errors)

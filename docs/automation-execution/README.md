@@ -8,7 +8,7 @@ Use **Run CLM workflow** for a button or an action you execute as a signed-in HA
 2. Add the CLM Lovelace card and link your own CLM account. Approve the account challenge in CLM. The installation connection alone does not grant access to workflows.
 3. Give the linked CLM account **Webhooks view**, **Webhooks use**, and permissions for every action the workflow performs.
 4. In CLM, create and enable the workflow under **Tools & Extensions → Automations**. For the native component path, choose a non-personal workflow with fixed actions. Nested automation actions and actions that unlock Personal Mode are not exposed by the companion catalogue.
-5. In the card's embedded CLM workspace, search for the workflow, select **Run automation**, then choose **Run action** to test it. Choose **Approve companion binding** to authorize a reusable call for your linked account. Each binding has its own ID and expiry; it is not the workflow's ID.
+5. In the card's embedded CLM workspace, search for the workflow, select **Run automation**, then choose **Run action** to test it. Choose **Request companion binding** to ask for a reusable call for your linked account. From component 0.3.0 the binding waits until you allow it in CLM: CLM asks in the window you used last, and the request is listed under **Companion connections → Waiting for you**. Until then `clm.run_workflow` answers "Allow this in CLM first". Bindings made before 0.3.0 keep working. Each binding has its own ID and expiry; it is not the workflow's ID.
 
 The component invokes the existing approved binding; it does not need an API key, webhook signing secret or MQTT connection for this path. The backend checks current permissions and the enabled state on every call.
 

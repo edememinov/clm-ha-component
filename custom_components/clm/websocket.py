@@ -71,6 +71,8 @@ async def handle(hass, connection, msg):
                     runtime.links[actor] = result["credential"]
                     await runtime.store.async_save({"links": runtime.links})
                     runtime.pending.pop(actor, None)
+                    # Offer this account's entities to CLM now rather than on the next 30-second pass.
+                    runtime.wake.set()
                 result = {"approved": bool(result.get("approved"))}
         else:
             token = await linked_user(hass, runtime, actor)

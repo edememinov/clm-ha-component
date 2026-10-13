@@ -59,7 +59,8 @@ class CompanionClient:
         if route not in {"installations", "installations/origins", "challenges", "challenges/exchange", "capabilities",
                          "catalog/query", "bindings", "bindings/list", "bindings/invoke",
                          "ui-sessions", "revoke", "external-automations", "external-events", "dispatches/poll", "dispatches/wait", "dispatches/acknowledge",
-                         "native/actions", "native/devices"}:
+                         "native/actions", "native/devices",
+                         "entities/sync", "entities/states", "entities/decision", "entities/offer", "entities/withdraw"}:
             raise CompanionError()
         headers = {"Authorization": f"Bearer {credential}"} if credential else {}
         try:

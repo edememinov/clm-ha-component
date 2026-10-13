@@ -221,5 +221,77 @@
         }
       }
     }
+  },
+  "issues": {
+    "access_request_control": {
+      "title": "CLM asks to use {entity}",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Allow CLM to use {entity}?",
+            "description": "The CLM account linked to the Home Assistant user {account} on {connection} asks to use **{entity}** (`{entity_id}`).\n\nAllowing it lets that account's CLM workflows read its state and control it (turn on and off, press, or run it). You can revoke it later by deleting it under the CLM integration in Devices & services, and the account can only ever use what that Home Assistant user may use.",
+            "menu_options": {
+              "allow": "Allow",
+              "deny": "Refuse"
+            }
+          }
+        },
+        "abort": {
+          "cannot_connect": "CLM could not be reached, or the request was withdrawn there. Try again in a moment; the request stays here until it is answered or withdrawn.",
+          "not_permitted": "This Home Assistant user is not allowed to use this entity, or is no longer linked, so it cannot be shared with CLM.",
+          "unavailable": "The CLM connection is not loaded. Reload the integration and try again."
+        }
+      }
+    },
+    "access_request_read": {
+      "title": "CLM asks to read {entity}",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Allow CLM to use {entity}?",
+            "description": "The CLM account linked to the Home Assistant user {account} on {connection} asks to use **{entity}** (`{entity_id}`).\n\nAllowing it lets that account's CLM workflows read its state and react to changes. You can revoke it later by deleting it under the CLM integration in Devices & services, and the account can only ever use what that Home Assistant user may use.",
+            "menu_options": {
+              "allow": "Allow",
+              "deny": "Refuse"
+            }
+          }
+        },
+        "abort": {
+          "cannot_connect": "CLM could not be reached, or the request was withdrawn there. Try again in a moment; the request stays here until it is answered or withdrawn.",
+          "not_permitted": "This Home Assistant user is not allowed to use this entity, or is no longer linked, so it cannot be shared with CLM.",
+          "unavailable": "The CLM connection is not loaded. Reload the integration and try again."
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "access": {
+      "initiate_flow": {
+        "user": "Share with CLM"
+      },
+      "entry_type": "Shared with CLM",
+      "step": {
+        "user": {
+          "title": "Share an entity with CLM",
+          "description": "Lets a linked CLM account use a light, button, sensor or automation without waiting for it to ask. Delete the entry here to take it back.",
+          "data": {
+            "entity": "Entity",
+            "account": "Linked account"
+          },
+          "data_description": {
+            "entity": "Lights and buttons can be controlled; sensors can be read; automations can be run and used as triggers in CLM.",
+            "account": "The Home Assistant user whose linked CLM account gets access. It can only use what this user may use."
+          }
+        }
+      },
+      "error": {
+        "not_permitted": "This user is not allowed to use this entity in Home Assistant.",
+        "cannot_connect": "CLM could not be reached. Try again in a moment."
+      },
+      "abort": {
+        "no_linked_accounts": "Link a CLM account first: open the CLM card and follow its link steps.",
+        "unavailable": "The CLM connection is not loaded. Reload the integration and try again."
+      }
+    }
   }
 }

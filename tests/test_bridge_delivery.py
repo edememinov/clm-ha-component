@@ -21,10 +21,12 @@ class CompanionError(Exception):
 class BridgeDeliveryTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.scope = {"CompanionError": CompanionError, "HomeAssistantError": CompanionError,
-                      "callback": lambda method: method, "DATA_COMPONENT": "automation", "POLICY_CONTROL": "control"}
+                      "callback": lambda method: method, "DATA_COMPONENT": "automation", "POLICY_CONTROL": "control",
+                      "entities": SimpleNamespace(granted=lambda runtime, actor, entity: entity in runtime.grants.get(actor, ()))}
         exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), "exec"), self.scope)
         self.user = SimpleNamespace(is_active=True, permissions=SimpleNamespace(check_entity=Mock(return_value=True)))
         self.runtime = SimpleNamespace(closed=False, links={"actor": "account-token"},
+                                       grants={"actor": {"automation.sample"}, "second": {"automation.sample"}},
                                        authority=SimpleNamespace(contains=Mock(return_value=False)), client=SimpleNamespace(request=AsyncMock()))
         self.entry = SimpleNamespace(runtime_data=self.runtime, data={"auth_token": "transport-token"})
         self.context = SimpleNamespace(id="event-1", parent_id=None)
@@ -82,6 +84,11 @@ class BridgeDeliveryTests(unittest.IsolatedAsyncioTestCase):
             self.user.is_active = condition != "inactive"
             self.user.permissions.check_entity.return_value = condition != "unpermitted"
             await self.scope["forward_event"](self.hass, self.runtime, {"automation": "automation.sample"})
+        self.runtime.client.request.assert_not_awaited()
+
+    async def test_automation_not_allowed_in_home_assistant_is_not_forwarded(self):
+        self.runtime.grants = {"actor": {"automation.other"}}
+        await self.scope["forward_event"](self.hass, self.runtime, {"automation": "automation.sample"})
         self.runtime.client.request.assert_not_awaited()
 
     async def test_one_accounts_long_workflow_does_not_delay_another_accounts_event(self):

@@ -8,9 +8,11 @@ import time
 from homeassistant.core import Context, callback
 from homeassistant.auth.permissions.const import POLICY_CONTROL
 from homeassistant.components.automation import DATA_COMPONENT
+from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.exceptions import HomeAssistantError
 
 from .client import CompanionError
+from . import entities
 
 
 def fingerprint(config) -> str:
@@ -48,6 +50,56 @@ async def bridge(hass, entry):
         tasks.create_task(publish_catalogue(hass, entry))
         tasks.create_task(receive_dispatches(hass, entry))
         tasks.create_task(forward_events(hass, entry))
+        tasks.create_task(forward_states(hass, entry))
+
+
+async def sync_entities(hass, entry, only: str | None = None):
+    """Exchange entity offers and grants for every linked account, or one."""
+    runtime = entry.runtime_data
+    for actor, credential in list(runtime.links.items()):
+        if only is not None and actor != only:
+            continue
+        try:
+            async with asyncio.timeout(60):
+                await entities.sync(hass, entry, actor, credential)
+        except (CompanionError, HomeAssistantError, TimeoutError, KeyError, TypeError):
+            pass
+
+
+async def forward_states(hass, entry):
+    """Sends allowed entities' changes to CLM, at most once a second per account."""
+    runtime = entry.runtime_data
+    waiting: dict[str, dict[str, dict]] = {}
+    ready = asyncio.Event()
+
+    @callback
+    def changed(event):
+        state = event.data.get("new_state")
+        if runtime.closed or state is None or entities.domain_of(state.entity_id) not in entities.DOMAINS:
+            return
+        for actor, allowed in runtime.grants.items():
+            if state.entity_id in allowed and len(waiting.setdefault(actor, {})) < 500:
+                waiting[actor][state.entity_id] = entities.snapshot(state)
+                ready.set()
+
+    unsubscribe = hass.bus.async_listen(EVENT_STATE_CHANGED, changed)
+    try:
+        while True:
+            await ready.wait()
+            await asyncio.sleep(1)
+            ready.clear()
+            batch, waiting = waiting, {}
+            for actor, states in batch.items():
+                credential = runtime.links.get(actor)
+                if credential is None:
+                    continue
+                try:
+                    await runtime.client.request("entities/states", list(states.values()), credential)
+                except CompanionError:
+                    # The next regular exchange carries every allowed state again.
+                    pass
+    finally:
+        unsubscribe()
 
 
 async def forward_events(hass, entry):
@@ -89,6 +141,8 @@ async def forward_event(hass, runtime, payload):
         user = await hass.auth.async_get_user(actor)
         if runtime.closed or user is None or not user.is_active or not user.permissions.check_entity(payload["automation"], POLICY_CONTROL):
             return
+        if not entities.granted(runtime, actor, payload["automation"]):
+            return
         try:
             await runtime.client.request("external-events", payload, credential)
         except CompanionError:
@@ -124,7 +178,13 @@ async def publish_catalogue(hass, entry):
                     await runtime.client.request("external-automations", automations[:100], credential)
         except (CompanionError, HomeAssistantError):
             pass
-        await asyncio.sleep(30)
+        await sync_entities(hass, entry)
+        # A request from CLM or a subentry change wakes this early.
+        try:
+            await asyncio.wait_for(runtime.wake.wait(), 30)
+        except TimeoutError:
+            pass
+        runtime.wake.clear()
 
 
 async def receive_dispatches(hass, entry):
@@ -168,11 +228,23 @@ async def deliver(hass, entry, delivery):
 async def dispatch(hass, entry, delivery):
     from . import linked_user
     runtime = entry.runtime_data
+    kind = delivery.get("kind", "automation")
+    if kind == "sync":
+        await sync_entities(hass, entry, delivery["actor"])
+        return
+    if kind == "entity":
+        try:
+            await entities.control(hass, entry, delivery)
+        except (HomeAssistantError, TimeoutError) as error:
+            raise ValueError("Control failed.") from error
+        return
+    if kind != "automation":
+        raise ValueError("Unknown delivery.")
     actor = delivery["actor"]
     credential = await linked_user(hass, runtime, actor)
     user = await hass.auth.async_get_user(actor)
     entity_id = delivery["automation"]
-    if delivery["expires"] <= time.time() or not user.permissions.check_entity(entity_id, POLICY_CONTROL):
+    if delivery["expires"] <= time.time() or not user.permissions.check_entity(entity_id, POLICY_CONTROL) or not entities.granted(runtime, actor, entity_id):
         raise ValueError("Dispatch denied.")
     component = hass.data.get(DATA_COMPONENT)
     entity = component.get_entity(entity_id) if component else None
@@ -180,7 +252,7 @@ async def dispatch(hass, entry, delivery):
         raise ValueError("Dispatch denied.")
     bindings = bindings_for(entity.raw_config, entry.entry_id)
     approved = await runtime.client.request("bindings/list", {}, credential)
-    allowed = {value["id"] for value in approved if not value["personal"] and value["operation"] not in ("external.run", "automation.run")}
+    allowed = {value["id"] for value in approved if not value["personal"] and not value.get("pending") and value["operation"] not in ("external.run", "automation.run")}
     if any(binding not in allowed for binding in bindings):
         raise ValueError("Dispatch denied.")
     root = Context(user_id=actor)

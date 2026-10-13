@@ -26,7 +26,9 @@ package = types.ModuleType("clm_flow_test")
 package.__path__ = [str(root)]
 sys.modules[package.__name__] = package
 ha = types.ModuleType("homeassistant")
-ha.config_entries = types.SimpleNamespace(ConfigFlow=FlowAdapter)
+ha.config_entries = types.SimpleNamespace(ConfigFlow=FlowAdapter, ConfigSubentryFlow=FlowAdapter)
+exceptions = types.ModuleType("homeassistant.exceptions")
+exceptions.Unauthorized = type("Unauthorized", (Exception,), {})
 helpers = types.ModuleType("homeassistant.helpers")
 helpers.selector = types.SimpleNamespace(
     TextSelector=Mock(side_effect=lambda config: str),
@@ -35,7 +37,8 @@ helpers.selector = types.SimpleNamespace(
 )
 http = types.ModuleType("homeassistant.helpers.aiohttp_client")
 http.async_get_clientsession = Mock(return_value=object())
-with patch.dict(sys.modules, {"homeassistant": ha, "homeassistant.helpers": helpers, "homeassistant.helpers.aiohttp_client": http}):
+with patch.dict(sys.modules, {"homeassistant": ha, "homeassistant.exceptions": exceptions, "homeassistant.helpers": helpers,
+                              "homeassistant.helpers.aiohttp_client": http}):
     for name in ("const", "client", "addresses", "config_flow"):
         spec = importlib.util.spec_from_file_location(f"{package.__name__}.{name}", root / f"{name}.py")
         module = importlib.util.module_from_spec(spec)

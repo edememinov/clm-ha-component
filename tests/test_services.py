@@ -150,10 +150,16 @@ class ServicesTests(unittest.IsolatedAsyncioTestCase):
     async def test_listing_defaults_to_nonpersonal_workflows_and_returns_no_details(self):
         self.bindings[0]["target"]="private target details"
         result=await self.calls["list_bindings"][0](self.call())
-        self.assertEqual({"bindings":[{"id":"workflow-binding","operation":"automation.run","expires":123}]},result)
+        self.assertEqual({"bindings":[{"id":"workflow-binding","operation":"automation.run","expires":123,"pending":False}]},result)
         result=await self.calls["list_bindings"][0](self.call(workflows_only=False))
         self.assertEqual(["workflow-binding","leaf-binding"],[item["id"] for item in result["bindings"]])
         self.assertEqual("only",self.calls["list_bindings"][1]["supports_response"])
+
+    async def test_workflow_waiting_for_approval_in_clm_is_not_run(self):
+        self.bindings[0]["pending"]=True
+        with self.assertRaisesRegex(HomeAssistantError,"Allow this in CLM first"):
+            await self.calls["run_workflow"][0](self.call())
+        self.assertEqual(["bindings/list"],[call.args[0] for call in self.client.request.await_args_list])
 
     async def test_anonymous_listing_is_denied(self):
         with self.assertRaises(Unauthorized):

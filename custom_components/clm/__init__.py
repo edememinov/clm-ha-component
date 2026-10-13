@@ -25,6 +25,11 @@ class Runtime:
     pending: dict = field(default_factory=dict)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     closed: bool = False
+    # Entities allowed per linked account (from the connection's subentries), and grants just allowed.
+    grants: dict[str, set[str]] = field(default_factory=dict)
+    fresh: dict[str, float] = field(default_factory=dict)
+    grant_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    wake: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 async def linked_user(hass, runtime: Runtime, actor: str) -> str:
@@ -57,7 +62,7 @@ async def async_setup(hass, config):
         try:
             bindings = await runtime.client.request("bindings/list", {}, token)
             return {"bindings": [
-                {key: item[key] for key in ("id", "operation", "expires")}
+                {"id": item["id"], "operation": item["operation"], "expires": item["expires"], "pending": bool(item.get("pending"))}
                 for item in bindings if not item["personal"]
                 and (not call.data.get("workflows_only", True) or item["operation"] == "automation.run")
             ]}
@@ -95,7 +100,7 @@ async def async_setup(hass, config):
         if state is None or state.state != "on":
             raise HomeAssistantError("Automation is unavailable or disabled.")
         available = await runtime.client.request("bindings/list", {}, runtime.links[actor])
-        allowed = {item["id"] for item in available if not item["personal"] and item["operation"] not in ("external.run", "automation.run")}
+        allowed = {item["id"] for item in available if not item["personal"] and not item.get("pending") and item["operation"] not in ("external.run", "automation.run")}
         from .bridge import bindings_for
         from homeassistant.components.automation import DATA_COMPONENT
         component = hass.data.get(DATA_COMPONENT)
@@ -134,8 +139,11 @@ async def execute_binding(hass, runtime: Runtime, context, binding: str, operati
             if not context.user_id:
                 raise Unauthorized(context=context)
             available = await runtime.client.request("bindings/list", {}, token)
-            if not any(item["id"] == binding and not item["personal"] and item["operation"] == operation for item in available):
+            match = next((item for item in available if item["id"] == binding and not item["personal"] and item["operation"] == operation), None)
+            if match is None:
                 raise Unauthorized(context=context)
+            if match.get("pending"):
+                raise HomeAssistantError("Allow this in CLM first: it is waiting under Companion connections.")
         result = await runtime.client.request("bindings/invoke", {"binding": binding, "key": str(uuid4())}, token)
         return {key: result[key] for key in ("id", "status", "code", "duplicate")}
     except Denied:
@@ -157,6 +165,15 @@ async def async_setup_entry(hass, entry):
     links = data.get("links", {}) if isinstance(data, dict) else {}
     links = {actor: token for actor, token in links.items() if isinstance(actor, str) and isinstance(token, str) and len(token) == 101} if isinstance(links, dict) else {}
     entry.runtime_data = Runtime(CompanionClient(async_get_clientsession(hass), entry.data["api_origin"]), store, links)
+    from .entities import refresh
+    refresh(entry)
+
+    async def changed(hass, entry):
+        # A subentry added or deleted under Devices & services: tell CLM now rather than in 30 seconds.
+        if isinstance(entry.runtime_data, Runtime):
+            refresh(entry)
+            entry.runtime_data.wake.set()
+    entry.async_on_unload(entry.add_update_listener(changed))
     from .bridge import bridge
     task = entry.async_create_background_task(hass, bridge(hass, entry), "clm companion bridge")
     entry.async_on_unload(task.cancel)
