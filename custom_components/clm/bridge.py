@@ -9,6 +9,9 @@ from homeassistant.core import Context, callback
 from homeassistant.auth.permissions.const import POLICY_CONTROL
 from homeassistant.components.automation import DATA_COMPONENT
 from homeassistant.const import EVENT_STATE_CHANGED
+
+# The regular exchange: CLM learns what changed in between from events, so this only catches up.
+HEARTBEAT = 300
 from homeassistant.exceptions import HomeAssistantError
 
 from .client import CompanionError
@@ -67,18 +70,25 @@ async def sync_entities(hass, entry, only: str | None = None):
 
 
 async def forward_states(hass, entry):
-    """Sends allowed entities' changes to CLM, at most once a second per account."""
+    """Sends changes of the entities CLM's workflows use, at most once a second per account.
+
+    Other allowed entities' changes wait for the regular exchange. An entity appearing or disappearing
+    changes what can be offered, so it wakes the exchange instead."""
     runtime = entry.runtime_data
     waiting: dict[str, dict[str, dict]] = {}
     ready = asyncio.Event()
 
     @callback
     def changed(event):
-        state = event.data.get("new_state")
-        if runtime.closed or state is None or entities.domain_of(state.entity_id) not in entities.DOMAINS:
+        state, old = event.data.get("new_state"), event.data.get("old_state")
+        if runtime.closed or entities.domain_of(event.data.get("entity_id", "")) not in entities.DOMAINS:
             return
-        for actor, allowed in runtime.grants.items():
-            if state.entity_id in allowed and len(waiting.setdefault(actor, {})) < 500:
+        if state is None or old is None:
+            runtime.wake.set()
+        if state is None:
+            return
+        for actor in list(runtime.grants):
+            if entities.watched(runtime, actor, state.entity_id) and len(waiting.setdefault(actor, {})) < 500:
                 waiting[actor][state.entity_id] = entities.snapshot(state)
                 ready.set()
 
@@ -95,8 +105,9 @@ async def forward_states(hass, entry):
                     continue
                 try:
                     await runtime.client.request("entities/states", list(states.values()), credential)
+                    entities.remember_sent(runtime, actor, states.values())
                 except CompanionError:
-                    # The next regular exchange carries every allowed state again.
+                    # Not marked as sent, so the next regular exchange carries them.
                     pass
     finally:
         unsubscribe()
@@ -154,9 +165,27 @@ async def forward_event(hass, runtime, payload):
 
 
 async def publish_catalogue(hass, entry):
-    """Bounded delivery; errors never log credentials, content or remote responses."""
+    """Bounded delivery; errors never log credentials, content or remote responses.
+
+    Runs every five minutes, and early when something it reports changed here: an entity added, removed or
+    renamed, automations reloaded, an access entry added or deleted, or CLM asking."""
     runtime = entry.runtime_data
     listed_at, listed_for = 0.0, set()
+
+    @callback
+    def changed(event):
+        if not runtime.closed:
+            runtime.wake.set()
+
+    unsubscribers = [hass.bus.async_listen(name, changed) for name in ("entity_registry_updated", "automation_reloaded")]
+    try:
+        await _publish_catalogue(hass, entry, runtime, listed_at, listed_for)
+    finally:
+        for unsubscribe in unsubscribers:
+            unsubscribe()
+
+
+async def _publish_catalogue(hass, entry, runtime, listed_at, listed_for):
     while True:
         try:
             component = hass.data.get(DATA_COMPONENT)
@@ -184,9 +213,11 @@ async def publish_catalogue(hass, entry):
         if time.monotonic() - listed_at > 600 or set(runtime.links) != listed_for:
             listed_at, listed_for = time.monotonic(), set(runtime.links)
             await items.refresh(hass, entry)
-        # A request from CLM or a subentry change wakes this early.
+        # A request from CLM, a subentry change or a change listed above wakes this early.
         try:
-            await asyncio.wait_for(runtime.wake.wait(), 30)
+            await asyncio.wait_for(runtime.wake.wait(), HEARTBEAT)
+            # Several changes usually come together (a reload renames many entities): take them as one.
+            await asyncio.sleep(2)
         except TimeoutError:
             pass
         runtime.wake.clear()

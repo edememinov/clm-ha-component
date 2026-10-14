@@ -7,6 +7,7 @@ revokes it. CLM holds the same list; this side decides when the two disagree.
 """
 
 from datetime import datetime
+import hashlib
 import json
 from types import MappingProxyType
 from time import monotonic
@@ -17,6 +18,7 @@ from homeassistant.core import Context
 from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers import issue_registry as ir
 
+from .client import CompanionError
 from .const import DOMAIN
 
 DOMAINS = ("light", "button", "input_button", "sensor", "binary_sensor")
@@ -58,11 +60,72 @@ def granted(runtime, actor: str, entity_id: str) -> bool:
     return entity_id in runtime.grants.get(actor, ())
 
 
+def traits(state) -> dict:
+    """What an entity can do, which does not change while it exists, so CLM can offer choices instead of raw values.
+
+    A light's colour modes and white range, a sensor's device class, unit and options. Never a reading."""
+    attributes, found = state.attributes, {}
+    if state.domain == "light":
+        modes = attributes.get("supported_color_modes")
+        if isinstance(modes, (list, tuple, set, frozenset)):
+            found["modes"] = sorted(str(mode)[:32] for mode in modes)[:8]
+        for key, name in (("min_color_temp_kelvin", "min_kelvin"), ("max_color_temp_kelvin", "max_kelvin")):
+            if isinstance(attributes.get(key), int) and not isinstance(attributes.get(key), bool):
+                found[name] = attributes[key]
+    elif state.domain in ("sensor", "binary_sensor"):
+        for key, name in (("device_class", "device_class"), ("unit_of_measurement", "unit"), ("state_class", "state_class")):
+            if isinstance(attributes.get(key), str) and attributes[key]:
+                found[name] = attributes[key][:64]
+        options = attributes.get("options")
+        if state.domain == "sensor" and isinstance(options, (list, tuple)) and all(isinstance(option, str) for option in options):
+            found["options"] = [option[:64] for option in options[:32]]
+    while found and len(json.dumps(found)) > 2000:
+        found.popitem()
+    return found
+
+
 def catalogue(hass, user) -> list[dict]:
-    """What the account could use: names only, never states, until something is allowed."""
-    rows = [{"id": state.entity_id, "label": (state.name or state.entity_id)[:128].strip() or state.entity_id, "domain": state.domain}
-            for state in hass.states.async_all(DOMAINS) if permitted(user, state.entity_id)]
+    """What the account could use: names and what each can do, never states, until something is allowed."""
+    rows = []
+    for state in hass.states.async_all(DOMAINS):
+        if permitted(user, state.entity_id):
+            row = {"id": state.entity_id, "label": (state.name or state.entity_id)[:128].strip() or state.entity_id, "domain": state.domain}
+            if found := traits(state):
+                row["traits"] = found
+            rows.append(row)
     return sorted(rows, key=lambda row: row["label"].casefold())[:MAX_ENTITIES]
+
+
+def digest(value) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+
+
+def signature(snap: dict) -> str:
+    """A state as sent, without when it changed: equal signatures need not be sent again."""
+    return digest([snap["state"], snap["attributes"]])
+
+
+def memo(runtime) -> dict:
+    """What was last exchanged per account: the offer's fingerprint, each state's signature, and CLM's watch list."""
+    found = getattr(runtime, "exchange", None)
+    if not isinstance(found, dict) or not found:
+        found = {"hash": {}, "sent": {}, "watch": {}}
+        runtime.exchange = found
+    return found
+
+
+def watched(runtime, actor: str, entity_id: str) -> bool:
+    """Whether a change is sent the moment it happens: CLM names the entities its workflows use. An older CLM names
+    none, and then every allowed entity counts."""
+    watch = memo(runtime)["watch"].get(actor)
+    return entity_id in runtime.grants.get(actor, ()) and (watch is None or entity_id in watch)
+
+
+def remember_sent(runtime, actor: str, snaps) -> None:
+    sent = memo(runtime)["sent"].get(actor)
+    if sent is not None:
+        for snap in snaps:
+            sent[snap["id"]] = signature(snap)
 
 
 def _scalar(value):
@@ -150,7 +213,12 @@ def _clear_repairs(hass, entry) -> None:
 
 
 async def sync(hass, entry, actor: str, credential: str) -> None:
-    """One exchange for one account: the offer, allowed states and grants out; CLM's grants back."""
+    """One exchange for one account: grants out, CLM's grants back.
+
+    The offer goes only when it changed since CLM last took it, and states only when they changed since last
+    sent; the first exchange after starting sends every state. When CLM says it lost what it held (it restarted),
+    the exchange is repeated once with everything. CLM answers which entities its workflows use: only their
+    changes are sent the moment they happen (see bridge.forward_states)."""
     runtime = entry.runtime_data
     user = await hass.auth.async_get_user(actor)
     if runtime.closed or user is None or not user.is_active:
@@ -161,10 +229,36 @@ async def sync(hass, entry, actor: str, credential: str) -> None:
         migrate = actor not in migrated
         now = monotonic()
         keep = set(mine) | {grant for grant, until in runtime.fresh.items() if until > now}
-        states = [snapshot(state) for sub in mine.values() if domain_of(sub.data["entity"]) in DOMAINS
-                  and (state := hass.states.get(sub.data["entity"])) is not None]
-        result = await runtime.client.request("entities/sync", {
-            "entities": catalogue(hass, user), "states": states, "grants": sorted(keep), "migrate": migrate}, credential)
+        exchanged = memo(runtime)
+        rows = catalogue(hass, user)
+        offer = digest(rows)
+        full = False
+        for attempt in range(2):
+            previous = exchanged["sent"].get(actor)
+            complete = full or previous is None
+            current = [snapshot(state) for sub in mine.values() if domain_of(sub.data["entity"]) in DOMAINS
+                       and (state := hass.states.get(sub.data["entity"])) is not None]
+            states = current if complete else [snap for snap in current if previous.get(snap["id"]) != signature(snap)]
+            payload = {"states": states, "statesComplete": complete, "grants": sorted(keep), "migrate": migrate, "hash": offer}
+            if full or exchanged["hash"].get(actor) != offer:
+                payload["entities"] = rows
+            try:
+                result = await runtime.client.request("entities/sync", payload, credential)
+            except CompanionError:
+                if "entities" in payload:
+                    raise
+                # A CLM from before offer fingerprints needs the whole offer every time.
+                result = await runtime.client.request("entities/sync", {**payload, "entities": rows}, credential)
+            exchanged["hash"][actor] = offer
+            exchanged["sent"][actor] = {**({} if complete else previous), **{snap["id"]: signature(snap) for snap in states}}
+            if attempt or not result.get("need"):
+                break
+            full = True
+        watch = result.get("watch")
+        if isinstance(watch, list):
+            exchanged["watch"][actor] = {value for value in watch if isinstance(value, str)}
+        else:
+            exchanged["watch"].pop(actor, None)
         listed = {grant["id"]: grant for grant in result.get("grants", []) if isinstance(grant, dict)}
         for grant, sub in mine.items():
             if grant not in listed:

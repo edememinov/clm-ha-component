@@ -104,7 +104,19 @@ class EntityAccessTests(unittest.IsolatedAsyncioTestCase):
     def test_offer_lists_only_permitted_supported_entities_by_name(self):
         rows = entities.catalogue(self.hass, self.user)
         self.assertEqual(["Desk lamp", "Doorbell", "Temperature"], [row["label"] for row in rows])
-        self.assertTrue(all(set(row) == {"id", "label", "domain"} for row in rows))
+        self.assertTrue(all(set(row) - {"traits"} == {"id", "label", "domain"} for row in rows))
+        # What a thing can do travels with the offer; readings never do.
+        self.assertEqual({"unit": "°C"}, rows[2]["traits"])
+        self.assertNotIn("traits", rows[0])
+
+    def test_traits_say_what_a_light_or_sensor_can_do(self):
+        lamp = state("light.strip", supported_color_modes={"color_temp", "rgb"}, min_color_temp_kelvin=2000, max_color_temp_kelvin=6500, brightness=3)
+        self.assertEqual({"modes": ["color_temp", "rgb"], "min_kelvin": 2000, "max_kelvin": 6500}, entities.traits(lamp))
+        self.assertEqual({"modes": ["onoff"]}, entities.traits(state("light.plain", supported_color_modes=["onoff"])))
+        washer = state("sensor.washer", "idle", device_class="enum", options=["idle", "washing", "done"], friendly_name="Washer")
+        self.assertEqual({"device_class": "enum", "options": ["idle", "washing", "done"]}, entities.traits(washer))
+        self.assertEqual({"device_class": "door"}, entities.traits(state("binary_sensor.front", "off", device_class="door")))
+        self.assertEqual({}, entities.traits(state("button.doorbell", "2026-10-13T08:00:00+00:00")))
 
     def test_snapshot_keeps_scalars_and_short_number_lists(self):
         snapshot = entities.snapshot(self.states["light.desk"])
@@ -130,7 +142,7 @@ class EntityAccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({}, self.registry.issues)
         route, payload = self.sent[0]
         self.assertEqual("entities/sync", route)
-        self.assertEqual({"entities", "states", "grants", "migrate"}, set(payload))
+        self.assertEqual({"entities", "states", "statesComplete", "grants", "migrate", "hash"}, set(payload))
         self.assertEqual([], payload["states"])
         # Waiting for the person: nothing is decided or shared yet.
         self.assertNotIn("entities/decision", [route for route, _ in self.sent])
@@ -171,6 +183,72 @@ class EntityAccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({"light.desk", "sensor.temperature"}, {value["id"] for value in payload["states"]})
         self.assertEqual({"g3"}, set(entities.held(self.entry)))
         self.assertEqual({"actor": {"sensor.temperature"}}, self.runtime.grants)
+
+    async def test_an_unchanged_offer_and_unchanged_states_are_not_sent_again(self):
+        self.grant("g3", "sensor.temperature")
+        self.grant("g4", "light.desk")
+        self.entry.data = {"grants_migrated": ["actor"]}
+        approved = [{"id": "g3", "entity": "sensor.temperature", "label": "Temperature", "status": "approved", "carried": False},
+                    {"id": "g4", "entity": "light.desk", "label": "Desk lamp", "status": "approved", "carried": False}]
+        self.answer_sync(approved)
+        await entities.sync(self.hass, self.entry, "actor", "credential")
+        first = self.sent[0][1]
+        self.assertIn("entities", first)
+        self.assertTrue(first["statesComplete"])
+        self.assertEqual(2, len(first["states"]))
+
+        self.answer_sync(approved)
+        await entities.sync(self.hass, self.entry, "actor", "credential")
+        second = self.sent[0][1]
+        self.assertNotIn("entities", second)
+        self.assertEqual(first["hash"], second["hash"])
+        self.assertEqual(([], False), (second["states"], second["statesComplete"]))
+
+        # Only what changed in between goes with the next exchange; a new entity changes the offer.
+        self.states["sensor.temperature"] = state("sensor.temperature", "22.0", name="Temperature", unit_of_measurement="°C")
+        self.states["light.new"] = state("light.new", name="New lamp")
+        self.allowed.add("light.new")
+        self.answer_sync(approved)
+        await entities.sync(self.hass, self.entry, "actor", "credential")
+        third = self.sent[0][1]
+        self.assertEqual(["sensor.temperature"], [value["id"] for value in third["states"]])
+        self.assertIn("New lamp", [row["label"] for row in third["entities"]])
+
+    async def test_a_clm_that_lost_what_it_held_gets_everything_once_more(self):
+        self.grant("g3", "sensor.temperature")
+        self.entry.data = {"grants_migrated": ["actor"]}
+        approved = [{"id": "g3", "entity": "sensor.temperature", "label": "Temperature", "status": "approved", "carried": False}]
+        self.answer_sync(approved)
+        await entities.sync(self.hass, self.entry, "actor", "credential")
+        answers = iter([{"grants": approved, "need": ["entities", "states"]}, {"grants": approved, "need": [], "watch": ["sensor.temperature"]}])
+        async def request(route, payload, credential):
+            self.sent.append((route, payload))
+            return next(answers) if route == "entities/sync" else {"ok": True}
+        self.sent = []
+        self.client.request.side_effect = request
+        await entities.sync(self.hass, self.entry, "actor", "credential")
+        light, full = self.sent[0][1], self.sent[1][1]
+        self.assertNotIn("entities", light)
+        self.assertIn("entities", full)
+        self.assertEqual((True, ["sensor.temperature"]), (full["statesComplete"], [value["id"] for value in full["states"]]))
+        self.assertEqual(2, len(self.sent))
+        self.assertTrue(entities.watched(self.runtime, "actor", "sensor.temperature"))
+
+    async def test_only_entities_clms_workflows_use_are_watched(self):
+        self.grant("g3", "sensor.temperature")
+        self.grant("g4", "light.desk")
+        self.assertTrue(entities.watched(self.runtime, "actor", "light.desk"))
+        self.answer_sync([])
+        self.client.request.side_effect = None
+        self.client.request.return_value = {"grants": [
+            {"id": "g3", "entity": "sensor.temperature", "label": "Temperature", "status": "approved", "carried": False},
+            {"id": "g4", "entity": "light.desk", "label": "Desk lamp", "status": "approved", "carried": False}], "watch": ["light.desk"]}
+        self.entry.data = {"grants_migrated": ["actor"]}
+        await entities.sync(self.hass, self.entry, "actor", "credential")
+        self.assertTrue(entities.watched(self.runtime, "actor", "light.desk"))
+        self.assertFalse(entities.watched(self.runtime, "actor", "sensor.temperature"))
+        # Never an entity that is not allowed, whatever CLM names.
+        self.assertFalse(entities.watched(self.runtime, "other", "light.desk"))
 
     async def test_carried_approvals_are_adopted_on_the_first_exchange_only(self):
         carried = [{"id": "g5", "entity": "automation.evening", "label": "Evening", "status": "approved", "carried": True}]

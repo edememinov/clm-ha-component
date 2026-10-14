@@ -35,6 +35,8 @@ class Runtime:
     operations: dict[str, str] = field(default_factory=dict)
     grant_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     wake: asyncio.Event = field(default_factory=asyncio.Event)
+    # Per account: the offer's fingerprint and each state's signature as last sent, and the entities CLM's workflows use.
+    exchange: dict = field(default_factory=dict)
 
 
 async def linked_user(hass, runtime: Runtime, actor: str) -> str:
@@ -176,7 +178,7 @@ async def async_setup_entry(hass, entry):
     refresh(entry)
 
     async def changed(hass, entry):
-        # A subentry added or deleted under Devices & services: tell CLM now rather than in 30 seconds.
+        # A subentry added or deleted under Devices & services: tell CLM now rather than at the next regular exchange.
         if isinstance(entry.runtime_data, Runtime):
             refresh(entry)
             entry.runtime_data.wake.set()

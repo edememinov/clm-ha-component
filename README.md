@@ -62,8 +62,9 @@ HA starts that automation; no extra HA action, MQTT configuration or browser tab
 is required. HA conditions still decide whether its automation starts.
 
 This event path is immediate. The component also holds a bounded delivery request
-open so CLM button commands wake it immediately, independently of the 30-second
-catalogue refresh. A slow automation does not block new delivery. Approving the
+open so CLM button commands wake it immediately, independently of the regular
+exchange (every five minutes, and at once when an entity, an automation or an
+access entry changes here). A slow automation does not block new delivery. Approving the
 same configuration renews its stable binding instead of creating duplicate picker
 items. Editing the HA definition requires approval again. Use non-personal CLM
 workflows without nested workflow, external automation or Personal Mode actions.
@@ -161,3 +162,14 @@ definitions require CLM approval again. HA's trigger service does not return a
 reliable completion/condition result: its acknowledgement remains **accepted**;
 lost acknowledgements remain **unknown**. It never claims runtime completion.
 Bridge-authorized actions are limited to approved leaf bindings to prevent cycles.
+
+## What is sent to CLM, and how often
+
+Entities shared with CLM change CLM workflows the moment they change, without polling:
+
+- Changes of the shared entities that an enabled CLM workflow uses are sent at once,
+  at most once a second per account. CLM tells the integration which ones those are.
+- Other shared entities' changes go with the regular exchange, every five minutes.
+- The list of what could be shared, with each entity's abilities (a light's colour modes
+  and white range, a sensor's class, unit and options), is sent only when it changed.
+- After CLM restarts, it asks once for everything again.
