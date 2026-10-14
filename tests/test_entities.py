@@ -28,7 +28,6 @@ package = types.ModuleType("clm_entities_test")
 package.__path__ = [str(root)]
 package.linked_user = AsyncMock(side_effect=lambda hass, runtime, actor: runtime.links[actor])
 issues = types.ModuleType("homeassistant.helpers.issue_registry")
-issues.IssueSeverity = types.SimpleNamespace(WARNING="warning")
 modules = {
     "homeassistant.auth.permissions.const": types.SimpleNamespace(POLICY_CONTROL="control", POLICY_READ="read"),
     "homeassistant.config_entries": types.SimpleNamespace(ConfigSubentry=Subentry),
@@ -56,16 +55,11 @@ class Registry:
     def __init__(self):
         self.issues = {}
 
-    def async_get_issue(self, domain, issue_id):
-        return self.issues.get((domain, issue_id))
-
 
 class EntityAccessTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.registry = Registry()
         issues.async_get = lambda hass: self.registry
-        issues.async_create_issue = lambda hass, domain, issue_id, **kwargs: self.registry.issues.__setitem__(
-            (domain, issue_id), types.SimpleNamespace(data=kwargs["data"], translation_key=kwargs["translation_key"], active=True))
         issues.async_delete_issue = lambda hass, domain, issue_id: self.registry.issues.pop((domain, issue_id), None)
         self.allowed = {"light.desk", "sensor.temperature", "button.doorbell", "automation.evening"}
         self.user = types.SimpleNamespace(is_active=True, name="Sam",
@@ -77,7 +71,7 @@ class EntityAccessTests(unittest.IsolatedAsyncioTestCase):
             state("light.hidden", name="Hidden lamp"),
             state("lock.front", "locked", name="Front door"))}
         self.client = types.SimpleNamespace(request=AsyncMock())
-        self.runtime = types.SimpleNamespace(closed=False, links={"actor": "credential"}, grants={}, fresh={},
+        self.runtime = types.SimpleNamespace(closed=False, links={"actor": "credential"}, grants={}, fresh={}, asked=set(),
                                              grant_lock=asyncio.Lock(), client=self.client)
         self.entry = types.SimpleNamespace(entry_id="entry", data={}, subentries={}, runtime_data=self.runtime)
         def add_subentry(entry, sub):
@@ -126,32 +120,44 @@ class EntityAccessTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 entities.service_data(service, data)
 
-    async def test_pending_request_goes_to_repairs_once_and_is_cleared_when_withdrawn(self):
+    async def test_pending_request_is_announced_once_and_old_repairs_items_go(self):
+        # A Repairs item left from an earlier version: requests are answered in the CLM card now.
+        self.registry.issues[("clm", "access_old")] = types.SimpleNamespace(data={"entry_id": "entry"}, active=False)
         self.answer_sync([{"id": "g1", "entity": "light.desk", "label": "Desk lamp", "status": "pending", "carried": False}])
         await entities.sync(self.hass, self.entry, "actor", "credential")
         await entities.sync(self.hass, self.entry, "actor", "credential")
-        issue = self.registry.issues[("clm", "access_g1")]
-        self.assertEqual("access_request_control", issue.translation_key)
-        self.assertEqual({"entry_id": "entry", "actor": "actor", "grant": "g1", "entity": "light.desk", "label": "Desk lamp"}, issue.data)
         self.assertEqual([("clm_access_requested", {"entity_id": "light.desk", "account": "Sam", "config_entry_id": "entry"})], self.fired)
+        self.assertEqual({}, self.registry.issues)
         route, payload = self.sent[0]
         self.assertEqual("entities/sync", route)
         self.assertEqual({"entities", "states", "grants", "migrate"}, set(payload))
         self.assertEqual([], payload["states"])
-        # After an HA restart the stored item is inactive: it is raised again, without a second event.
-        self.registry.issues[("clm", "access_g1")].active = False
-        await entities.sync(self.hass, self.entry, "actor", "credential")
-        self.assertTrue(self.registry.issues[("clm", "access_g1")].active)
-        self.assertEqual(1, len(self.fired))
-        self.answer_sync([])
-        await entities.sync(self.hass, self.entry, "actor", "credential")
-        self.assertEqual({}, self.registry.issues)
+        # Waiting for the person: nothing is decided or shared yet.
+        self.assertNotIn("entities/decision", [route for route, _ in self.sent])
+        self.assertEqual({}, entities.held(self.entry))
 
-    async def test_request_for_something_the_account_cannot_use_is_refused_without_asking(self):
-        self.answer_sync([{"id": "g2", "entity": "light.hidden", "label": "Hidden", "status": "pending", "carried": False}])
+    async def test_request_for_something_the_account_cannot_use_is_refused(self):
+        self.answer_sync([{"id": "g2", "entity": "light.hidden", "label": "Hidden", "status": "pending", "carried": False},
+                          {"id": "g2b", "entity": "light.hidden", "label": "Hidden", "status": "confirming", "carried": False}])
         await entities.sync(self.hass, self.entry, "actor", "credential")
         self.assertIn(("entities/decision", {"grant": "g2", "allow": False}), self.sent)
-        self.assertEqual({}, self.registry.issues)
+        self.assertIn(("entities/decision", {"grant": "g2b", "allow": False}), self.sent)
+        self.assertEqual([], self.fired)
+        self.assertEqual({}, entities.held(self.entry))
+
+    async def test_allowed_in_the_card_is_confirmed_here_then_a_deletion_revokes_it(self):
+        self.answer_sync([{"id": "g6", "entity": "light.desk", "label": "Desk lamp", "status": "confirming", "carried": False}])
+        await entities.sync(self.hass, self.entry, "actor", "credential")
+        self.assertEqual(("entities/decision", {"grant": "g6", "allow": True}), self.sent[1])
+        self.assertEqual("Desk lamp · Sam", entities.held(self.entry)["g6"].title)
+        self.assertEqual({"actor": {"light.desk"}}, self.runtime.grants)
+        # Covered only until its subentry exists; deleting it afterwards is a revocation.
+        self.assertNotIn("g6", self.runtime.fresh)
+        self.entry.subentries = {}
+        entities.refresh(self.entry)
+        self.answer_sync([])
+        await entities.sync(self.hass, self.entry, "actor", "credential")
+        self.assertEqual([], self.sent[0][1]["grants"])
 
     async def test_grant_withdrawn_in_clm_is_removed_here_and_states_go_only_for_held_grants(self):
         self.grant("g3", "sensor.temperature")
@@ -179,26 +185,6 @@ class EntityAccessTests(unittest.IsolatedAsyncioTestCase):
         await entities.sync(self.hass, self.entry, "actor", "credential")
         self.assertFalse(self.sent[0][1]["migrate"])
         self.assertEqual({}, entities.held(self.entry))
-
-    async def test_allowing_in_repairs_tells_clm_then_adds_the_subentry(self):
-        self.answer_sync([])
-        await entities.answer(self.hass, self.entry, "actor", "g6", "light.desk", True)
-        self.assertEqual(("entities/decision", {"grant": "g6", "allow": True}), self.sent[0])
-        sub = entities.held(self.entry)["g6"]
-        self.assertEqual("Desk lamp · Sam", sub.title)
-        # Covered only until its subentry exists; deleting it afterwards is a revocation.
-        self.assertNotIn("g6", self.runtime.fresh)
-        self.entry.subentries = {}
-        entities.refresh(self.entry)
-        self.answer_sync([])
-        await entities.sync(self.hass, self.entry, "actor", "credential")
-        self.assertEqual([], self.sent[0][1]["grants"])
-        with self.assertRaises(Unauthorized):
-            await entities.answer(self.hass, self.entry, "actor", "g7", "light.hidden", True)
-        self.client.request.side_effect = CompanionError()
-        with self.assertRaises(CompanionError):
-            await entities.answer(self.hass, self.entry, "actor", "g8", "light.desk", True)
-        self.assertNotIn("g8", entities.held(self.entry))
 
     async def test_control_needs_a_grant_a_supported_service_and_permission(self):
         self.grant("g9", "light.desk")

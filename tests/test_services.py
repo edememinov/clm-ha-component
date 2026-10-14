@@ -51,10 +51,13 @@ class ServicesTests(unittest.IsolatedAsyncioTestCase):
         entry = types.SimpleNamespace(domain="clm", runtime_data=self.runtime)
         self.hass = types.SimpleNamespace(
             auth=types.SimpleNamespace(async_get_user=AsyncMock(return_value=self.user)),
-            config_entries=types.SimpleNamespace(async_get_entry=Mock(return_value=entry)),
+            config_entries=types.SimpleNamespace(async_get_entry=Mock(return_value=entry), async_entries=lambda domain: [entry]),
             services=types.SimpleNamespace(async_register=lambda domain, name, handler, **kwargs: self.calls.update({name:(handler, kwargs)})),
         )
-        with patch.dict(sys.modules, {websocket.__name__: websocket, "homeassistant.core":core, "homeassistant.exceptions":exceptions}):
+        self.described = {}
+        service = types.SimpleNamespace(async_set_service_schema=lambda hass, domain, name, schema: self.described.update({name: schema}))
+        with patch.dict(sys.modules, {websocket.__name__: websocket, "homeassistant.core":core, "homeassistant.exceptions":exceptions,
+                                      "homeassistant.helpers.service": service}):
             await module.async_setup(self.hass, {})
         self.result = {"id":"run-1", "status":"completed", "code":200, "duplicate":False, "private":"must not return"}
         self.bindings = [{"id":"workflow-binding", "operation":"automation.run", "personal":False, "expires":123},

@@ -12,7 +12,7 @@ from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.exceptions import HomeAssistantError
 
 from .client import CompanionError
-from . import entities
+from . import entities, items
 
 
 def fingerprint(config) -> str:
@@ -156,6 +156,7 @@ async def forward_event(hass, runtime, payload):
 async def publish_catalogue(hass, entry):
     """Bounded delivery; errors never log credentials, content or remote responses."""
     runtime = entry.runtime_data
+    listed_at, listed_for = 0.0, set()
     while True:
         try:
             component = hass.data.get(DATA_COMPONENT)
@@ -179,6 +180,10 @@ async def publish_catalogue(hass, entry):
         except (CompanionError, HomeAssistantError):
             pass
         await sync_entities(hass, entry)
+        # The Run CLM item pickers: every ten minutes, and at once for a newly linked account.
+        if time.monotonic() - listed_at > 600 or set(runtime.links) != listed_for:
+            listed_at, listed_for = time.monotonic(), set(runtime.links)
+            await items.refresh(hass, entry)
         # A request from CLM or a subentry change wakes this early.
         try:
             await asyncio.wait_for(runtime.wake.wait(), 30)

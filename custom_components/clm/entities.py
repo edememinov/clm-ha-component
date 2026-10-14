@@ -1,8 +1,9 @@
-"""Home Assistant entities a linked CLM account may use, each only after it is allowed here.
+"""Home Assistant entities a linked CLM account may use, each only after it is allowed.
 
-CLM asks for an entity and Home Assistant answers through a Repairs item; an administrator can also
-offer one. Every allowed entity is a subentry of the connection, so removing it under Devices &
-services revokes it. CLM holds the same list; this side decides when the two disagree.
+CLM asks for an entity; the linked person answers in the CLM card's Approvals tab, and this side
+confirms that their Home Assistant user may use it before it counts. An administrator can also offer
+one. Every allowed entity is a subentry of the connection, so removing it under Devices & services
+revokes it. CLM holds the same list; this side decides when the two disagree.
 """
 
 from datetime import datetime
@@ -139,25 +140,13 @@ def label_of(hass, entity_id: str, fallback: str | None = None) -> str:
     return (state.name if state else None) or (fallback or "")[:128].strip() or entity_id
 
 
-def issue_id(grant: str) -> str:
-    return f"access_{grant}"
-
-
-def ask(hass, entry, actor: str, user, request: dict) -> None:
-    """Puts CLM's request in Repairs, and the first time fires an event automations can notify with."""
+def _clear_repairs(hass, entry) -> None:
+    """Requests used to wait in Repairs; they are answered in the CLM card now, so any left there go."""
     registry = ir.async_get(hass)
-    existing = registry.async_get_issue(DOMAIN, issue_id(request["id"]))
-    # HA keeps issues across restarts but shows only the ones created again since starting.
-    if existing is not None and existing.active:
-        return
-    entity_id = request["entity"]
-    ir.async_create_issue(
-        hass, DOMAIN, issue_id(request["id"]), is_fixable=True, is_persistent=False, severity=ir.IssueSeverity.WARNING,
-        translation_key="access_request_control" if policy(entity_id) == POLICY_CONTROL else "access_request_read",
-        translation_placeholders={"entity": label_of(hass, entity_id, request.get("label")), "entity_id": entity_id, "account": user.name or "CLM account"},
-        data={"entry_id": entry.entry_id, "actor": actor, "grant": request["id"], "entity": entity_id, "label": str(request.get("label") or "")[:128]})
-    if existing is None:
-        hass.bus.async_fire(EVENT_REQUESTED, {"entity_id": entity_id, "account": user.name or "", "config_entry_id": entry.entry_id})
+    for domain, key in list(registry.issues):
+        issue = registry.issues[(domain, key)]
+        if domain == DOMAIN and key.startswith("access_") and (issue.data or {}).get("entry_id", entry.entry_id) == entry.entry_id:
+            ir.async_delete_issue(hass, DOMAIN, key)
 
 
 async def sync(hass, entry, actor: str, credential: str) -> None:
@@ -180,41 +169,26 @@ async def sync(hass, entry, actor: str, credential: str) -> None:
         for grant, sub in mine.items():
             if grant not in listed:
                 hass.config_entries.async_remove_subentry(entry, sub.subentry_id)
-        pending = set()
         for grant in listed.values():
-            entity_id = grant.get("entity", "")
-            if grant.get("status") == "pending":
-                if not permitted(user, entity_id):
-                    # Nothing to ask about: this account could not use it here anyway.
-                    await runtime.client.request("entities/decision", {"grant": grant["id"], "allow": False}, credential)
-                    continue
-                pending.add(grant["id"])
-                ask(hass, entry, actor, user, grant)
-            elif grant.get("status") == "approved" and grant["id"] not in mine and migrate and grant.get("carried") and permitted(user, entity_id):
+            entity_id, status = grant.get("entity", ""), grant.get("status")
+            if status in ("pending", "confirming") and not permitted(user, entity_id):
+                # This account could not use it here anyway, whatever the person answers.
+                await runtime.client.request("entities/decision", {"grant": grant["id"], "allow": False}, credential)
+            elif status == "pending" and grant["id"] not in runtime.asked:
+                # Answered in the CLM card; the event lets an automation say so on a phone.
+                runtime.asked.add(grant["id"])
+                hass.bus.async_fire(EVENT_REQUESTED, {"entity_id": entity_id, "account": user.name or "", "config_entry_id": entry.entry_id})
+            elif status == "confirming":
+                # The person allowed it in the CLM card; this account may use it, so it counts from now.
+                await runtime.client.request("entities/decision", {"grant": grant["id"], "allow": True}, credential)
+                _remember(runtime, grant["id"])
+                add(hass, entry, actor, user, grant["id"], entity_id, label_of(hass, entity_id, grant.get("label")))
+            elif status == "approved" and grant["id"] not in mine and migrate and grant.get("carried") and permitted(user, entity_id):
                 add(hass, entry, actor, user, grant["id"], entity_id, label_of(hass, entity_id))
-        registry = ir.async_get(hass)
-        for (domain, key), issue in list(registry.issues.items()):
-            data = issue.data or {}
-            if domain == DOMAIN and data.get("entry_id") == entry.entry_id and data.get("actor") == actor and data.get("grant") not in pending:
-                ir.async_delete_issue(hass, DOMAIN, key)
+        _clear_repairs(hass, entry)
         if migrate:
             hass.config_entries.async_update_entry(entry, data={**entry.data, "grants_migrated": sorted(migrated | {actor})})
         refresh(entry)
-
-
-async def answer(hass, entry, actor: str, grant: str, entity_id: str, allow: bool) -> None:
-    """An administrator's answer from Repairs. Allowing adds the grant under the connection."""
-    from . import linked_user
-    runtime = entry.runtime_data
-    credential = await linked_user(hass, runtime, actor)
-    user = await hass.auth.async_get_user(actor)
-    if allow and not permitted(user, entity_id):
-        raise Unauthorized()
-    async with runtime.grant_lock:
-        await runtime.client.request("entities/decision", {"grant": grant, "allow": allow}, credential)
-        if allow:
-            _remember(runtime, grant)
-            add(hass, entry, actor, user, grant, entity_id, label_of(hass, entity_id))
 
 
 async def offer(hass, entry, actor: str, entity_id: str) -> str:

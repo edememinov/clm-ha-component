@@ -28,6 +28,11 @@ class Runtime:
     # Entities allowed per linked account (from the connection's subentries), and grants just allowed.
     grants: dict[str, set[str]] = field(default_factory=dict)
     fresh: dict[str, float] = field(default_factory=dict)
+    # Requests already announced with clm_access_requested since starting.
+    asked: set[str] = field(default_factory=set)
+    # CLM items each linked account may run, for the Run CLM item action's pickers.
+    items: dict[str, list[dict]] = field(default_factory=dict)
+    operations: dict[str, str] = field(default_factory=dict)
     grant_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     wake: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -44,6 +49,8 @@ async def async_setup(hass, config):
     register(hass)
     from .native_actions import register as register_native_actions
     register_native_actions(hass)
+    from .items import register as register_items
+    register_items(hass)
 
     async def invoke(call):
         runtime = _runtime(hass, call.data["config_entry_id"])

@@ -10,17 +10,31 @@ CLM Lovelace card and link each user's own account from that card.
 
 ## Use HA lights, buttons and sensors in CLM
 
-From version 0.3.0 the integration offers each linked account's lights, buttons (`button`, `input_button`) and sensors (`sensor`, `binary_sensor`) to CLM, by name only, filtered by what that Home Assistant user may use. CLM can use one only after it is allowed here:
+From version 0.3.0 the integration offers each linked account's lights, buttons (`button`, `input_button`) and sensors (`sensor`, `binary_sensor`) to CLM, by name only, filtered by what that Home Assistant user may use. CLM can use one only after you allow it in the CLM card:
 
 1. In CLM, open **Companion connections**, select this connection and choose **Ask Home Assistant** for a light, button or sensor.
-2. An administrator answers in **Settings → Repairs** with **Allow** or **Refuse**. The integration also fires `clm_access_requested` (`entity_id`, `account`, `config_entry_id`), so an automation can notify your phone.
+2. Open the CLM card's **Approvals** tab and choose **Allow** or **Refuse**. The integration then checks that your Home Assistant user may use the entity before it counts. It also fires `clm_access_requested` (`entity_id`, `account`, `config_entry_id`) when a request arrives, so an automation can notify your phone. From 0.4.0 requests no longer appear in Repairs.
 3. Allowed entities are listed under the CLM integration in **Devices & services** as **Shared with CLM**. Delete an entry to revoke it; CLM stops using it at once. **Share with CLM** on the same page allows an entity without waiting for a request.
 
 CLM workflows can then turn lights on, off or toggle them (with brightness, colour temperature, colour and fade), press buttons, and read states and attributes in conditions and state triggers. Allowed entities' state changes reach CLM within about a second. Service calls run as the linked Home Assistant user and are refused when that user may no longer control the entity.
 
-Approving a Home Assistant automation in CLM asks here too. Automations approved before 0.3.0 are carried over once and keep working. In the other direction, a binding requested from the card's CLM workspace waits until it is allowed in CLM.
+Approving a Home Assistant automation in CLM asks in the card's Approvals tab too. Automations approved before 0.3.0 are carried over once and keep working.
 
 Update the CLM backend together with the integration: an older backend does not offer these routes.
+
+## Run CLM items from HA automations
+
+From 0.4.0, choose **CLM: Run CLM item** (`clm.run_item`) in HA's **Add action** picker. Pick the CLM connection, then the **CLM item** and the **Action** by name. The lists show what your linked account may use in CLM (personal items are not listed) and refresh every ten minutes; reload the page after adding items in CLM. Every run uses the account's current CLM permissions. **Plugin inputs** and **CLM window** (advanced) carry values for actions that ask for them. With several linked accounts, unattended runs need **Linked HA account**.
+
+```yaml
+action: clm.run_item
+data:
+  config_entry_id: YOUR_CLM_CONFIG_ENTRY_ID
+  item: game-preset:42
+  operation: session.start
+```
+
+The card's workspace has no binding request any more: CLM items no longer need one. Existing bindings used with `clm.invoke` and `clm.run_workflow` keep working.
 
 ## Start sessions and open Windows windows from HA
 

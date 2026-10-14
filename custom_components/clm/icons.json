@@ -23,6 +23,9 @@
     },
     "list_devices": {
       "service": "mdi:devices"
+    },
+    "run_item": {
+      "service": "mdi:gesture-tap-button"
     }
   }
 }

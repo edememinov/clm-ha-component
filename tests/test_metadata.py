@@ -29,7 +29,8 @@ class MetadataTests(unittest.TestCase):
                   "list_bindings":{"config_entry_id","workflows_only"},"run_automation":{"config_entry_id","automation"}}
         common={"config_entry_id","account_user_id","device","pin","incognito"}
         expected.update({"start_session":common|{"preset_name"},"open_selkies":common|{"session_name","match"},
-                         "open_clm":common,"list_devices":{"config_entry_id","account_user_id"}})
+                         "open_clm":common,"list_devices":{"config_entry_id","account_user_id"},
+                         "run_item":{"config_entry_id","item","operation","inputs","destination","account_user_id"}})
         self.assertEqual(set(expected),set(strings["services"]))
         self.assertEqual(set(expected),set(icons["services"]))
         for name,fields in expected.items():

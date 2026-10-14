@@ -220,46 +220,34 @@
           "description": "For unattended automations with multiple linked accounts, select the HA user ID whose CLM link to use. Interactive callers always use their own link."
         }
       }
-    }
-  },
-  "issues": {
-    "access_request_control": {
-      "title": "CLM asks to use {entity}",
-      "fix_flow": {
-        "step": {
-          "init": {
-            "title": "Allow CLM to use {entity}?",
-            "description": "The CLM account linked to the Home Assistant user {account} on {connection} asks to use **{entity}** (`{entity_id}`).\n\nAllowing it lets that account's CLM workflows read its state and control it (turn on and off, press, or run it). You can revoke it later by deleting it under the CLM integration in Devices & services, and the account can only ever use what that Home Assistant user may use.",
-            "menu_options": {
-              "allow": "Allow",
-              "deny": "Refuse"
-            }
-          }
-        },
-        "abort": {
-          "cannot_connect": "CLM could not be reached, or the request was withdrawn there. Try again in a moment; the request stays here until it is answered or withdrawn.",
-          "not_permitted": "This Home Assistant user is not allowed to use this entity, or is no longer linked, so it cannot be shared with CLM.",
-          "unavailable": "The CLM connection is not loaded. Reload the integration and try again."
-        }
-      }
     },
-    "access_request_read": {
-      "title": "CLM asks to read {entity}",
-      "fix_flow": {
-        "step": {
-          "init": {
-            "title": "Allow CLM to use {entity}?",
-            "description": "The CLM account linked to the Home Assistant user {account} on {connection} asks to use **{entity}** (`{entity_id}`).\n\nAllowing it lets that account's CLM workflows read its state and react to changes. You can revoke it later by deleting it under the CLM integration in Devices & services, and the account can only ever use what that Home Assistant user may use.",
-            "menu_options": {
-              "allow": "Allow",
-              "deny": "Refuse"
-            }
-          }
+    "run_item": {
+      "name": "Run CLM item",
+      "description": "Runs an action on a CLM item with the linked account's current CLM permissions. Items are listed by name; reload the page after adding items in CLM.",
+      "fields": {
+        "config_entry_id": {
+          "name": "CLM connection",
+          "description": "The integration connection whose linked account runs the action."
         },
-        "abort": {
-          "cannot_connect": "CLM could not be reached, or the request was withdrawn there. Try again in a moment; the request stays here until it is answered or withdrawn.",
-          "not_permitted": "This Home Assistant user is not allowed to use this entity, or is no longer linked, so it cannot be shared with CLM.",
-          "unavailable": "The CLM connection is not loaded. Reload the integration and try again."
+        "item": {
+          "name": "CLM item",
+          "description": "What to act on. Only items the linked account may use in CLM are listed."
+        },
+        "operation": {
+          "name": "Action",
+          "description": "What to do. CLM refuses an action the item does not support."
+        },
+        "inputs": {
+          "name": "Plugin inputs",
+          "description": "Values for a plugin action that asks for them."
+        },
+        "destination": {
+          "name": "CLM window",
+          "description": "For actions that open something in a CLM window: {device, window}."
+        },
+        "account_user_id": {
+          "name": "Linked HA account",
+          "description": "Optional when one account is linked. Required for unattended actions when multiple accounts are linked."
         }
       }
     }

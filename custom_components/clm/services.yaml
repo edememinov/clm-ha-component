@@ -179,3 +179,33 @@ run_workflow:
       required: true
       selector:
         text:
+
+run_item:
+  name: Run CLM item
+  description: Runs an action on a CLM item with the linked account's current CLM permissions.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: clm
+    item:
+      required: true
+      selector:
+        text:
+    operation:
+      required: true
+      selector:
+        text:
+    inputs:
+      advanced: true
+      selector:
+        object:
+    destination:
+      advanced: true
+      selector:
+        object:
+    account_user_id:
+      advanced: true
+      selector:
+        text:
