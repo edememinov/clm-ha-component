@@ -107,7 +107,8 @@ class EntityAccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(set(row) - {"traits"} == {"id", "label", "domain"} for row in rows))
         # What a thing can do travels with the offer; readings never do.
         self.assertEqual({"unit": "°C"}, rows[2]["traits"])
-        self.assertNotIn("traits", rows[0])
+        # A light's effects are something it can do, so they are offered as choices.
+        self.assertEqual({"effect_list": ["a"] * 10}, rows[0]["traits"])
 
     def test_traits_say_what_a_light_or_sensor_can_do(self):
         lamp = state("light.strip", supported_color_modes={"color_temp", "rgb"}, min_color_temp_kelvin=2000, max_color_temp_kelvin=6500, brightness=3)
@@ -123,14 +124,28 @@ class EntityAccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({"brightness": 120, "rgb_color": [255, 120, 0], "entity_picture": None}, snapshot["attributes"])
         self.assertEqual("2026-10-13T00:00:00+00:00", snapshot["changed"])
 
-    def test_light_options_are_checked_again(self):
-        self.assertEqual({"brightness_pct": 30, "transition": 1.5}, entities.service_data("turn_on", {"brightness_pct": 30, "transition": 1.5}))
-        self.assertEqual({}, entities.service_data("press", None))
-        for service, data in (("turn_off", {"brightness_pct": 1}), ("turn_on", {"brightness_pct": 101}), ("turn_on", {"entity_id": "light.other"}),
-                              ("turn_on", {"rgb_color": [1, 2]}), ("turn_on", {"brightness_pct": True}),
-                              ("turn_on", {"rgb_color": [1, 2, 3], "color_temp_kelvin": 3000})):
+    def test_service_options_are_checked_again(self):
+        self.assertEqual({"brightness_pct": 30, "transition": 1.5}, entities.service_data("light", "turn_on", {"brightness_pct": 30, "transition": 1.5}))
+        self.assertEqual({"transition": 2, "flash": "short"}, entities.service_data("light", "turn_off", {"transition": 2, "flash": "short"}))
+        self.assertEqual({}, entities.service_data("button", "press", None))
+        self.assertEqual({}, entities.service_data("switch", "toggle", None))
+        self.assertEqual({"position": 40}, entities.service_data("cover", "set_cover_position", {"position": 40}))
+        self.assertEqual({"option": "Movie"}, entities.service_data("input_select", "select_option", {"option": "Movie"}))
+        for domain, service, data in (("light", "turn_off", {"brightness_pct": 1}), ("light", "turn_on", {"brightness_pct": 101}),
+                                      ("light", "turn_on", {"entity_id": "light.other"}), ("light", "turn_on", {"rgb_color": [1, 2]}),
+                                      ("light", "turn_on", {"brightness_pct": True}), ("light", "turn_on", {"rgb_color": [1, 2, 3], "color_temp_kelvin": 3000}),
+                                      ("switch", "turn_on", {"brightness_pct": 50}), ("switch", "press", None), ("sensor", "turn_on", None),
+                                      ("select", "select_option", {"option": {"nested": 1}}), ("media_player", "volume_set", {"volume_level": 3})):
             with self.assertRaises(ValueError):
-                entities.service_data(service, data)
+                entities.service_data(domain, service, data)
+
+    def test_traits_carry_what_services_choose_from(self):
+        fan = state("fan.ceiling", "on", supported_features=9, preset_modes=["breeze", "sleep"], percentage_step=25, percentage=50)
+        self.assertEqual({"features": 9, "preset_modes": ["breeze", "sleep"], "percentage_step": 25}, entities.traits(fan))
+        dial = state("input_number.volume", "4", min=0, max=10, step=0.5, unit_of_measurement="dB", mode="slider")
+        self.assertEqual({"min": 0, "max": 10, "step": 0.5, "unit": "dB"}, entities.traits(dial))
+        self.assertEqual({}, entities.traits(state("switch.kettle", "off")))
+        self.assertIn("switch", entities.DOMAINS)
 
     async def test_pending_request_is_announced_once_and_old_repairs_items_go(self):
         # A Repairs item left from an earlier version: requests are answered in the CLM card now.

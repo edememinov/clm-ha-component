@@ -8,15 +8,15 @@ Enable CLM authentication and grant Webhooks view/use plus the intended feature
 permissions to each linked account. Configure the server and browser URLs as described below. Install the independent
 CLM Lovelace card and link each user's own account from that card.
 
-## Use HA lights, buttons and sensors in CLM
+## Use HA devices in CLM
 
-From version 0.3.0 the integration offers each linked account's lights, buttons (`button`, `input_button`) and sensors (`sensor`, `binary_sensor`) to CLM, by name only, filtered by what that Home Assistant user may use. CLM can use one only after you allow it in the CLM card:
+From version 0.3.0 the integration offers each linked account's lights, buttons (`button`, `input_button`) and sensors (`sensor`, `binary_sensor`) to CLM; from 0.6.0 also switches, input booleans, fans, covers, valves, locks, climate, humidifiers, water heaters, media players, vacuums, sirens, scenes, scripts, numbers, selects and text entities, by name only, filtered by what that Home Assistant user may use. CLM can use one only after you allow it in the CLM card:
 
-1. In CLM, open **Companion connections**, select this connection and choose **Ask Home Assistant** for a light, button or sensor.
+1. In CLM, open **Companion connections**, select this connection and choose **Ask Home Assistant** for a device.
 2. Open the CLM card's **Approvals** tab and choose **Allow** or **Refuse**. The integration then checks that your Home Assistant user may use the entity before it counts. It also fires `clm_access_requested` (`entity_id`, `account`, `config_entry_id`) when a request arrives, so an automation can notify your phone. From 0.4.0 requests no longer appear in Repairs.
 3. Allowed entities are listed under the CLM integration in **Devices & services** as **Shared with CLM**. Delete an entry to revoke it; CLM stops using it at once. **Share with CLM** on the same page allows an entity without waiting for a request.
 
-CLM workflows can then turn lights on, off or toggle them (with brightness, colour temperature, colour and fade), press buttons, and read states and attributes in conditions and state triggers. Allowed entities' state changes reach CLM within about a second. Service calls run as the linked Home Assistant user and are refused when that user may no longer control the entity.
+CLM workflows can then call every service of the entity's domain that CLM lists (for a light: on, off and toggle with brightness, brightness steps, colour temperature, colour, effect, flash and fade; for a switch: on, off and toggle; for a cover: open, close, stop and positions; for a media player: playback, volume, source and more), press buttons, and read states and attributes in conditions and state triggers. Each service accepts only its own options, and Home Assistant's own service schema checks their values; nothing can aim a call at another entity. The catalogue sends what each entity supports (its feature bits, effect and preset lists, number ranges, select options) so CLM offers only those. Allowed entities' state changes reach CLM within about a second. Service calls run as the linked Home Assistant user and are refused when that user may no longer control the entity.
 
 Approving a Home Assistant automation in CLM asks in the card's Approvals tab too. Automations approved before 0.3.0 are carried over once and keep working.
 

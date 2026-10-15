@@ -267,7 +267,7 @@
             "account": "Linked account"
           },
           "data_description": {
-            "entity": "Lights and buttons can be controlled; sensors can be read; automations can be run and used as triggers in CLM.",
+            "entity": "Lights, switches, covers, locks, climate, media players and the other devices with services can be controlled; sensors can be read; automations can be run and used as triggers in CLM.",
             "account": "The Home Assistant user whose linked CLM account gets access. It can only use what this user may use."
           }
         }

@@ -21,8 +21,45 @@ from homeassistant.helpers import issue_registry as ir
 from .client import CompanionError
 from .const import DOMAIN
 
-DOMAINS = ("light", "button", "input_button", "sensor", "binary_sensor")
-SERVICES = {"light": ("turn_on", "turn_off", "toggle"), "button": ("press",), "input_button": ("press",)}
+_LIGHT_ON = ("brightness_pct", "brightness_step_pct", "color_temp_kelvin", "rgb_color", "effect", "flash", "transition")
+_ON_OFF = {"turn_on": (), "turn_off": (), "toggle": ()}
+_SELECT = {"select_option": ("option",), "select_first": (), "select_last": (), "select_next": ("cycle",), "select_previous": ("cycle",)}
+# Every service CLM may call per domain, and the options each takes; CLM holds the same list. Home Assistant's
+# own service schema checks the values. Nothing that aims a call elsewhere (entity_id, area_id) is ever an option.
+SERVICES = {
+    "light": {"turn_on": _LIGHT_ON, "turn_off": ("transition", "flash"), "toggle": _LIGHT_ON},
+    "switch": _ON_OFF,
+    "input_boolean": _ON_OFF,
+    "fan": {"turn_on": ("percentage", "preset_mode"), "turn_off": (), "toggle": (), "set_percentage": ("percentage",),
+            "increase_speed": ("percentage_step",), "decrease_speed": ("percentage_step",), "set_preset_mode": ("preset_mode",),
+            "oscillate": ("oscillating",), "set_direction": ("direction",)},
+    "cover": {"open_cover": (), "close_cover": (), "stop_cover": (), "toggle": (), "set_cover_position": ("position",),
+              "open_cover_tilt": (), "close_cover_tilt": (), "stop_cover_tilt": (), "toggle_cover_tilt": (), "set_cover_tilt_position": ("tilt_position",)},
+    "valve": {"open_valve": (), "close_valve": (), "stop_valve": (), "toggle": (), "set_valve_position": ("position",)},
+    "lock": {"lock": (), "unlock": (), "open": ()},
+    "climate": {**_ON_OFF, "set_hvac_mode": ("hvac_mode",), "set_temperature": ("temperature", "target_temp_low", "target_temp_high", "hvac_mode"),
+                "set_humidity": ("humidity",), "set_preset_mode": ("preset_mode",), "set_fan_mode": ("fan_mode",), "set_swing_mode": ("swing_mode",)},
+    "humidifier": {**_ON_OFF, "set_humidity": ("humidity",), "set_mode": ("mode",)},
+    "water_heater": {"turn_on": (), "turn_off": (), "set_temperature": ("temperature", "operation_mode"),
+                     "set_operation_mode": ("operation_mode",), "set_away_mode": ("away_mode",)},
+    "media_player": {**_ON_OFF, "media_play": (), "media_pause": (), "media_play_pause": (), "media_stop": (), "media_next_track": (),
+                     "media_previous_track": (), "volume_up": (), "volume_down": (), "volume_set": ("volume_level",), "volume_mute": ("is_volume_muted",),
+                     "media_seek": ("seek_position",), "select_source": ("source",), "select_sound_mode": ("sound_mode",), "shuffle_set": ("shuffle",),
+                     "repeat_set": ("repeat",), "play_media": ("media_content_id", "media_content_type")},
+    "vacuum": {"start": (), "pause": (), "stop": (), "return_to_base": (), "locate": (), "clean_spot": (), "set_fan_speed": ("fan_speed",)},
+    "siren": {"turn_on": ("tone", "duration", "volume_level"), "turn_off": (), "toggle": ()},
+    "scene": {"turn_on": ("transition",)},
+    "script": _ON_OFF,
+    "number": {"set_value": ("value",)},
+    "input_number": {"set_value": ("value",), "increment": (), "decrement": ()},
+    "select": _SELECT,
+    "input_select": _SELECT,
+    "text": {"set_value": ("value",)},
+    "input_text": {"set_value": ("value",)},
+    "button": {"press": ()},
+    "input_button": {"press": ()},
+}
+DOMAINS = (*SERVICES, "sensor", "binary_sensor")
 SUBENTRY = "access"
 MAX_ENTITIES = 1000
 EVENT_REQUESTED = "clm_access_requested"
@@ -33,7 +70,7 @@ def domain_of(entity_id: str) -> str:
 
 
 def policy(entity_id: str) -> str:
-    """Sensors are read; lights, buttons and automations are used."""
+    """Sensors are read; everything with services, and automations, is used."""
     return POLICY_CONTROL if domain_of(entity_id) in (*SERVICES, "automation") else POLICY_READ
 
 
@@ -60,19 +97,51 @@ def granted(runtime, actor: str, entity_id: str) -> bool:
     return entity_id in runtime.grants.get(actor, ())
 
 
+_LISTS = {
+    "light": ("effect_list",), "fan": ("preset_modes",), "climate": ("hvac_modes", "preset_modes", "fan_modes", "swing_modes"),
+    "humidifier": ("available_modes",), "water_heater": ("operation_list",), "media_player": ("source_list", "sound_mode_list"),
+    "vacuum": ("fan_speed_list",), "siren": ("available_tones",), "select": ("options",), "input_select": ("options",),
+}
+_RANGES = {
+    "fan": ("percentage_step",), "climate": ("min_temp", "max_temp", "target_temp_step", "min_humidity", "max_humidity"),
+    "humidifier": ("min_humidity", "max_humidity"), "water_heater": ("min_temp", "max_temp", "target_temp_step"),
+    "number": ("min", "max", "step"), "input_number": ("min", "max", "step"), "text": ("min", "max"), "input_text": ("min", "max"),
+}
+
+
+def _whole(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def traits(state) -> dict:
     """What an entity can do, which does not change while it exists, so CLM can offer choices instead of raw values.
 
-    A light's colour modes and white range, a sensor's device class, unit and options. Never a reading."""
+    A light's colour modes, white range and effects, the modes and lists a device's services choose from, number
+    ranges, the features it supports, a sensor's device class, unit and options. Never a reading."""
     attributes, found = state.attributes, {}
+    if state.domain in SERVICES and _whole(attributes.get("supported_features")):
+        found["features"] = attributes["supported_features"]
     if state.domain == "light":
         modes = attributes.get("supported_color_modes")
         if isinstance(modes, (list, tuple, set, frozenset)):
             found["modes"] = sorted(str(mode)[:32] for mode in modes)[:8]
         for key, name in (("min_color_temp_kelvin", "min_kelvin"), ("max_color_temp_kelvin", "max_kelvin")):
-            if isinstance(attributes.get(key), int) and not isinstance(attributes.get(key), bool):
+            if _whole(attributes.get(key)):
                 found[name] = attributes[key]
-    elif state.domain in ("sensor", "binary_sensor"):
+    # The values a service picks from, under Home Assistant's own attribute names.
+    for key in _LISTS.get(state.domain, ()):
+        values = attributes.get(key)
+        if isinstance(values, dict):
+            values = list(values)
+        if isinstance(values, (list, tuple)) and values and all(isinstance(value, str) for value in values):
+            found[key] = [value[:64] for value in values[:32]]
+    for key in _RANGES.get(state.domain, ()):
+        value = attributes.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value == value and abs(value) != float("inf"):
+            found[key] = value
+    if state.domain in ("number", "input_number") and isinstance(attributes.get("unit_of_measurement"), str):
+        found["unit"] = attributes["unit_of_measurement"][:64]
+    if state.domain in ("sensor", "binary_sensor"):
         for key, name in (("device_class", "device_class"), ("unit_of_measurement", "unit"), ("state_class", "state_class")):
             if isinstance(attributes.get(key), str) and attributes[key]:
                 found[name] = attributes[key][:64]
@@ -153,21 +222,33 @@ def snapshot(state) -> dict:
     return {"id": state.entity_id, "state": str(state.state)[:255], "attributes": attributes, "changed": state.last_changed.isoformat()}
 
 
-def service_data(service: str, data: dict | None) -> dict:
-    """The light options CLM may send, checked again here; anything else is refused."""
+def service_data(domain: str, service: str, data: dict | None) -> dict:
+    """The options CLM may send with a service, checked again here: only those that service takes for this domain,
+    as plain values. Anything else is refused; Home Assistant's own schema checks the values themselves."""
     data = data or {}
-    if data and service != "turn_on":
-        raise ValueError("Options are only accepted when turning on.")
-    def whole(value, low, high):
-        return isinstance(value, int) and not isinstance(value, bool) and low <= value <= high
+    allowed = SERVICES.get(domain, {}).get(service)
+    if allowed is None:
+        raise ValueError("Unsupported service.")
+    def number(value, low, high):
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and low <= value <= high
+    def plain(value):
+        if isinstance(value, bool) or isinstance(value, int):
+            return True
+        if isinstance(value, float):
+            return value == value and abs(value) != float("inf")
+        return isinstance(value, str) and 0 < len(value) <= 255 and not any(ord(char) < 32 for char in value)
     checks = {
-        "brightness_pct": lambda value: whole(value, 0, 100),
-        "color_temp_kelvin": lambda value: whole(value, 1000, 12000),
-        "transition": lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 300,
-        "rgb_color": lambda value: isinstance(value, list) and len(value) == 3 and all(whole(item, 0, 255) for item in value),
+        "brightness_pct": lambda value: number(value, 0, 100), "percentage": lambda value: number(value, 0, 100),
+        "position": lambda value: number(value, 0, 100), "tilt_position": lambda value: number(value, 0, 100),
+        "humidity": lambda value: number(value, 0, 100), "brightness_step_pct": lambda value: number(value, -100, 100),
+        "percentage_step": lambda value: number(value, -100, 100), "transition": lambda value: number(value, 0, 300),
+        "volume_level": lambda value: number(value, 0, 1),
+        "color_temp_kelvin": lambda value: _whole(value) and 1000 <= value <= 12000,
+        "rgb_color": lambda value: isinstance(value, list) and len(value) == 3 and all(_whole(item) and 0 <= item <= 255 for item in value),
     }
-    if any(key not in checks or not checks[key](value) for key, value in data.items()) or {"rgb_color", "color_temp_kelvin"} <= set(data):
-        raise ValueError("Unsupported light options.")
+    if (len(data) > 10 or any(key not in allowed or not checks.get(key, plain)(value) for key, value in data.items())
+            or {"rgb_color", "color_temp_kelvin"} <= set(data) or {"brightness_pct", "brightness_step_pct"} <= set(data)):
+        raise ValueError("Unsupported options for this service.")
     return dict(data)
 
 
@@ -312,5 +393,5 @@ async def control(hass, entry, delivery: dict) -> None:
     if (delivery["expires"] <= time.time() or not granted(runtime, actor, entity_id) or service not in SERVICES.get(domain_of(entity_id), ())
             or not user.permissions.check_entity(entity_id, POLICY_CONTROL) or hass.states.get(entity_id) is None):
         raise ValueError("Control denied.")
-    data = service_data(service, delivery.get("data"))
+    data = service_data(domain_of(entity_id), service, delivery.get("data"))
     await hass.services.async_call(domain_of(entity_id), service, {"entity_id": entity_id, **data}, blocking=True, context=Context(user_id=actor))
