@@ -165,7 +165,7 @@ Bridge-authorized actions are limited to approved leaf bindings to prevent cycle
 
 ## Remotes and wall switches
 
-Buttons work without setup. Integrations such as Zigbee2MQTT, Matter, Hue and Shelly give a remote an event entity, which CLM is offered directly. ZHA, deCONZ and some others report a press only as a device trigger (for a Tuya TS0044 under ZHA: "Button 1 short press" and so on), never as an entity. For each such device the integration adds one **Button press** event entity to the device's own page, fired with the press as its event type (`button_1_short_press`, `button_3_long_press`). A device that already has an event entity gets none. Share that entity with CLM like any other; a CLM workflow can then start on any press of it or on one press in particular.
+Buttons work without setup, with nothing about any brand or integration built in: CLM offers only what Home Assistant reports. Share the remote's **device** to get every trigger Home Assistant lists for it (ZHA, deCONZ, Zigbee2MQTT and others), or its event entity to get the event types that entity reports. 0.7 added a "Button press" event entity to some remotes; 0.8.0 removes those entities, as sharing the device does the same with Home Assistant's own list.
 
 ### Devices, as Home Assistant's Device trigger
 
@@ -181,8 +181,6 @@ Zigbee2MQTT gives a remote an **Action** event entity (`event.<name>_action`), a
 
 - **The event entity** (listed under **Buttons and remotes**): in a **Home Assistant device changes** trigger, choose the remote, then **Which press**, such as **4 hold**. Every press counts, the same one twice included.
 - **The action sensor** (listed under **Sensors**): choose **When: State** and type the action in **To**, such as `4_hold`. From 0.7.1 the value and the clearing that follows are both sent, in order, so a press is never merged away.
-
-Zigbee2MQTT already gives its remotes event entities, so the integration adds no **Button press** entity to them.
 
 ## What is sent to CLM, and how often
 

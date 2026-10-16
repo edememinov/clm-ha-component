@@ -15,9 +15,6 @@ from .client import CompanionClient, CompanionError
 from .const import DOMAIN, STORAGE_VERSION
 from .policy import Authority, Denied
 
-# Button presses Home Assistant reports only as device triggers, as event entities (see event.py).
-PLATFORMS = ["event"]
-
 
 @dataclass
 class Runtime:
@@ -194,13 +191,21 @@ async def async_setup_entry(hass, entry):
     from .bridge import bridge
     task = entry.async_create_background_task(hass, bridge(hass, entry), "clm companion bridge")
     entry.async_on_unload(task.cancel)
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _remove_button_press_entities(hass, entry)
     return True
 
 
+def _remove_button_press_entities(hass, entry) -> None:
+    """0.7 added a "Button press" event entity to remotes; whole devices are shared instead now, by the triggers
+    Home Assistant itself lists, so those entities are taken out of the registry rather than left behind."""
+    from homeassistant.helpers import entity_registry as er
+    registry = er.async_get(hass)
+    for item in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if item.domain == "event" and (item.unique_id or "").startswith("button_press_"):
+            registry.async_remove(item.entity_id)
+
+
 async def async_unload_entry(hass, entry):
-    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        return False
     entry.runtime_data.closed = True
     entry.runtime_data.pending.clear()
     entry.runtime_data.authority = Authority()

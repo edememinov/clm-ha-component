@@ -281,12 +281,5 @@
         "unavailable": "The CLM connection is not loaded. Reload the integration and try again."
       }
     }
-  },
-  "entity": {
-    "event": {
-      "button_press": {
-        "name": "Button press"
-      }
-    }
   }
 }
