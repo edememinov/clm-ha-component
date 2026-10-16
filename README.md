@@ -173,7 +173,7 @@ From 0.8.0 a whole device can be shared with CLM, not only its entities. A devic
 
 A device that is a light, a switch, a cover or another controllable kind stays one: its main entity (the first such entity that is not a configuration or diagnostic one) says what it is, so CLM lists it with the lights, controls it with the light's options and reads its on/off and brightness in conditions. CLM's commands for the device go to that entity, checked against the linked Home Assistant user's permission on it. A device counts as the account's when that user may read one of its entities.
 
-The integration listens to a device's triggers only while one of CLM's enabled workflows uses the device.
+The integration listens to a device's triggers only while one of CLM's enabled workflows uses the device. Some integrations (Zigbee2MQTT) tell Home Assistant about a trigger only once it has happened; after doing it on the device, **Look for new triggers** in CLM (0.8.2) asks the integration to read the device's triggers again, and the new one is offered.
 
 ### Zigbee2MQTT remotes
 

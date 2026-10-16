@@ -225,9 +225,10 @@ async def publish_catalogue(hass, entry):
     @callback
     def changed(event):
         if not runtime.closed:
-            # A device or entity added, removed or renamed may change which devices have which triggers.
-            if event.event_type in ("device_registry_updated", "entity_registry_updated") and runtime.devices is not None:
-                runtime.devices.forget()
+            # A device or entity added, removed or renamed may change that one device's triggers: only it is read again,
+            # never every device, so a busy registry costs Home Assistant next to nothing.
+            if runtime.devices is not None and (device := _device_of(hass, event)):
+                runtime.devices.forget(device)
             runtime.wake.set()
 
     unsubscribers = [hass.bus.async_listen(name, changed) for name in ("entity_registry_updated", "device_registry_updated", "automation_reloaded")]
@@ -236,6 +237,17 @@ async def publish_catalogue(hass, entry):
     finally:
         for unsubscribe in unsubscribers:
             unsubscribe()
+
+
+def _device_of(hass, event) -> str | None:
+    """The device a registry change concerns, if any."""
+    from homeassistant.helpers import entity_registry as er
+    if event.event_type == "device_registry_updated":
+        return event.data.get("device_id")
+    if event.event_type == "entity_registry_updated":
+        item = er.async_get(hass).async_get(event.data.get("entity_id") or "")
+        return item.device_id if item else None
+    return None
 
 
 async def _publish_catalogue(hass, entry, runtime, listed_at, listed_for):
@@ -319,6 +331,14 @@ async def dispatch(hass, entry, delivery):
     runtime = entry.runtime_data
     kind = delivery.get("kind", "automation")
     if kind == "sync":
+        await sync_entities(hass, entry, delivery["actor"])
+        return
+    if kind == "rescan":
+        # The person asked CLM to look for a shared device's triggers again: read them anew, then exchange.
+        reference = delivery.get("entity") or ""
+        if runtime.devices is None or not devices.is_device(reference) or not entities.granted(runtime, delivery["actor"], reference):
+            raise ValueError("Rescan denied.")
+        runtime.devices.forget(devices.device_id(reference))
         await sync_entities(hass, entry, delivery["actor"])
         return
     if kind == "entity":

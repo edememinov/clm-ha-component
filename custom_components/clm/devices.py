@@ -124,8 +124,14 @@ class DeviceTriggers:
         # Main entity → device reference, for the devices attached.
         self.mains: dict[str, str] = {}
 
-    def forget(self) -> None:
-        self._found.clear()
+    def forget(self, device: str | None = None) -> None:
+        """Read the triggers again next time, for one device or all: a trigger Home Assistant learnt since (Zigbee2MQTT
+        lists one the first time it fires) is then offered and listened to. The next exchange attaches them again."""
+        for known in ([device] if device else list(self._found)):
+            # A device not read yet costs nothing to forget; one read is read again on its own next time.
+            self._found.pop(known, None)
+            if (remove := self._attached.pop(known, None)) is not None:
+                remove()
 
     async def triggers(self, device_ids) -> dict[str, list[dict]]:
         """Device id → [{key, label, config}], for those with triggers. Unknown ones are read in one pass."""
