@@ -165,7 +165,7 @@ Bridge-authorized actions are limited to approved leaf bindings to prevent cycle
 
 ## Remotes and wall switches
 
-Buttons work without setup, with nothing about any brand or integration built in: CLM offers only what Home Assistant reports. Share the remote's **device** to get every trigger Home Assistant lists for it (ZHA, deCONZ, Zigbee2MQTT and others), or its event entity to get the event types that entity reports. 0.7 added a "Button press" event entity to some remotes; 0.8.0 removes those entities, as sharing the device does the same with Home Assistant's own list.
+Buttons work without setup, with nothing about any brand or integration built in: CLM offers only what Home Assistant reports. Share the remote's **device** to get every trigger Home Assistant lists for it (ZHA, deCONZ, Zigbee2MQTT and others), or its event entity to get the event types that entity reports. 0.7 added a "Button press" event entity to some remotes; 0.8.1 removes those entities, as sharing the device does the same with Home Assistant's own list.
 
 ### Devices, as Home Assistant's Device trigger
 
