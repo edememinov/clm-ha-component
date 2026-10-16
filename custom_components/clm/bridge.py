@@ -18,7 +18,7 @@ SEND_GAP = 0.25
 from homeassistant.exceptions import HomeAssistantError
 
 from .client import CompanionError
-from . import entities, items
+from . import devices, entities, items
 
 
 def fingerprint(config) -> str:
@@ -77,8 +77,9 @@ async def forward_states(hass, entry):
 
     The first change goes at once; changes arriving while it is sent, or within SEND_GAP after, go together in the
     next request, so a sensor reporting many times a second costs a few requests a second, not one per reading. A
-    state that changed twice in between is sent once, as it is now; every press of a button (an event entity) is
-    sent, in order, as each is a separate press. Other allowed entities' changes wait for the regular exchange.
+    reading that changed twice in between (a number, or attributes only) is sent once, as it is now; every other
+    change of state is sent, in order: a press of a button (an event entity), and a value that is set and cleared at
+    once, as an action sensor's "4_hold" followed by "" - merging those would lose the press. Other allowed entities' changes wait for the regular exchange.
     An entity appearing or disappearing changes what can be offered, so it wakes the exchange instead."""
     runtime = entry.runtime_data
     waiting: dict[str, dict] = {}
@@ -94,13 +95,36 @@ async def forward_states(hass, entry):
             runtime.wake.set()
         if state is None:
             return
-        key = (state.entity_id, next(presses)) if entities.domain_of(state.entity_id) == "event" else state.entity_id
+        # The main entity of a shared device: the device changed too (a light that is shared as its device).
+        if runtime.devices is not None and (reference := runtime.devices.mains.get(state.entity_id)):
+            snap = devices.snapshot(hass, reference, runtime.devices.last.get(devices.device_id(reference)))
+            for actor in list(runtime.grants):
+                if entities.watched(runtime, actor, reference) and len(waiting.setdefault(actor, {})) < 500:
+                    waiting[actor][(reference, next(presses)) if separate(state, old) else reference] = snap
+                    ready.set()
+        key = (state.entity_id, next(presses)) if separate(state, old) else state.entity_id
         for actor in list(runtime.grants):
             if entities.watched(runtime, actor, state.entity_id) and len(waiting.setdefault(actor, {})) < 500:
                 waiting[actor][key] = entities.snapshot(state)
                 ready.set()
 
+    @callback
+    def device_fired(event):
+        # A shared device's trigger fired: sent like a press, every firing on its own.
+        reference = devices.PREFIX + str(event.data.get("device_id", ""))
+        if runtime.closed or runtime.devices is None:
+            return
+        actors = [actor for actor in list(runtime.grants) if entities.watched(runtime, actor, reference)]
+        if not actors:
+            return
+        snap = devices.snapshot(hass, reference, runtime.devices.last.get(event.data.get("device_id")))
+        for actor in actors:
+            if len(waiting.setdefault(actor, {})) < 500:
+                waiting[actor][(reference, next(presses))] = snap
+                ready.set()
+
     unsubscribe = hass.bus.async_listen(EVENT_STATE_CHANGED, changed)
+    unsubscribe_devices = hass.bus.async_listen(devices.EVENT_FIRED, device_fired)
     try:
         while True:
             await ready.wait()
@@ -110,6 +134,21 @@ async def forward_states(hass, entry):
             await asyncio.sleep(SEND_GAP)
     finally:
         unsubscribe()
+        unsubscribe_devices()
+
+
+def separate(state, old) -> bool:
+    """Whether a change is sent on its own rather than replaced by a later one: an event, or a state that changed to
+    something other than a number. Numbers (a power reading) and attribute-only changes (a dimming light) are merged."""
+    if entities.domain_of(state.entity_id) == "event":
+        return True
+    if old is None or old.state == state.state:
+        return False
+    try:
+        float(state.state)
+        return False
+    except (TypeError, ValueError):
+        return True
 
 
 async def send_states(runtime, actor: str, states: list[dict]) -> None:
@@ -186,9 +225,12 @@ async def publish_catalogue(hass, entry):
     @callback
     def changed(event):
         if not runtime.closed:
+            # A device or entity added, removed or renamed may change which devices have which triggers.
+            if event.event_type in ("device_registry_updated", "entity_registry_updated") and runtime.devices is not None:
+                runtime.devices.forget()
             runtime.wake.set()
 
-    unsubscribers = [hass.bus.async_listen(name, changed) for name in ("entity_registry_updated", "automation_reloaded")]
+    unsubscribers = [hass.bus.async_listen(name, changed) for name in ("entity_registry_updated", "device_registry_updated", "automation_reloaded")]
     try:
         await _publish_catalogue(hass, entry, runtime, listed_at, listed_for)
     finally:

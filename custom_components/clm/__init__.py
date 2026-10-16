@@ -40,6 +40,8 @@ class Runtime:
     wake: asyncio.Event = field(default_factory=asyncio.Event)
     # Per account: the offer's fingerprint and each state's signature as last sent, and the entities CLM's workflows use.
     exchange: dict = field(default_factory=dict)
+    # Shared devices' triggers (devices.DeviceTriggers); set up with the entry.
+    devices: object | None = None
 
 
 async def linked_user(hass, runtime: Runtime, actor: str) -> str:
@@ -177,6 +179,9 @@ async def async_setup_entry(hass, entry):
     links = data.get("links", {}) if isinstance(data, dict) else {}
     links = {actor: token for actor, token in links.items() if isinstance(actor, str) and isinstance(token, str) and len(token) == 101} if isinstance(links, dict) else {}
     entry.runtime_data = Runtime(CompanionClient(async_get_clientsession(hass), entry.data["api_origin"]), store, links)
+    from .devices import DeviceTriggers
+    entry.runtime_data.devices = DeviceTriggers(hass)
+    entry.async_on_unload(entry.runtime_data.devices.detach)
     from .entities import refresh
     refresh(entry)
 

@@ -18,6 +18,7 @@ from homeassistant.core import Context
 from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers import issue_registry as ir
 
+from . import devices
 from .client import CompanionError
 from .const import DOMAIN
 
@@ -71,11 +72,14 @@ def domain_of(entity_id: str) -> str:
 
 
 def policy(entity_id: str) -> str:
-    """Sensors and events are read; everything with services, and automations, is used."""
+    """Sensors, events and devices are read; everything with services, and automations, is used."""
     return POLICY_CONTROL if domain_of(entity_id) in (*SERVICES, "automation") else POLICY_READ
 
 
-def permitted(user, entity_id: str) -> bool:
+def permitted(user, entity_id: str, hass=None) -> bool:
+    """Whether the account may use it here: an entity by its permissions, a device by one of its entities'."""
+    if devices.is_device(entity_id):
+        return hass is not None and devices.permitted(hass, user, entity_id)
     return (user is not None and user.is_active and domain_of(entity_id) in (*DOMAINS, "automation")
             and user.permissions.check_entity(entity_id, policy(entity_id)))
 
@@ -192,6 +196,11 @@ def watched(runtime, actor: str, entity_id: str) -> bool:
     return entity_id in runtime.grants.get(actor, ()) and (watch is None or entity_id in watch)
 
 
+def watched_devices(runtime) -> set[str]:
+    """The shared devices any account's workflows use: only their triggers are listened to."""
+    return {entity for actor in runtime.grants for entity in runtime.grants[actor] if devices.is_device(entity) and watched(runtime, actor, entity)}
+
+
 def remember_sent(runtime, actor: str, snaps) -> None:
     sent = memo(runtime)["sent"].get(actor)
     if sent is not None:
@@ -282,6 +291,8 @@ def _remember(runtime, grant: str) -> None:
 
 def label_of(hass, entity_id: str, fallback: str | None = None) -> str:
     """HA's own name; before the entity has a state (just after a restart), the name it was offered under."""
+    if devices.is_device(entity_id):
+        return devices.label(hass, entity_id, fallback)
     state = hass.states.get(entity_id)
     return (state.name if state else None) or (fallback or "")[:128].strip() or entity_id
 
@@ -314,6 +325,8 @@ async def sync(hass, entry, actor: str, credential: str) -> None:
         keep = set(mine) | {grant for grant, until in runtime.fresh.items() if until > now}
         exchanged = memo(runtime)
         rows = catalogue(hass, user)
+        if runtime.devices is not None:
+            rows = sorted([*rows, *await runtime.devices.catalogue(user)], key=lambda row: row["label"].casefold())[:MAX_ENTITIES]
         offer = digest(rows)
         full = False
         for attempt in range(2):
@@ -321,6 +334,9 @@ async def sync(hass, entry, actor: str, credential: str) -> None:
             complete = full or previous is None
             current = [snapshot(state) for sub in mine.values() if domain_of(sub.data["entity"]) in DOMAINS
                        and (state := hass.states.get(sub.data["entity"])) is not None]
+            # A device has no state: what fired last since starting, or "unknown", so the next firing is a change.
+            current += [devices.snapshot(hass, sub.data["entity"], runtime.devices.last.get(devices.device_id(sub.data["entity"])) if runtime.devices else None)
+                        for sub in mine.values() if devices.is_device(sub.data["entity"])]
             states = current if complete else [snap for snap in current if previous.get(snap["id"]) != signature(snap)]
             payload = {"states": states, "statesComplete": complete, "grants": sorted(keep), "migrate": migrate, "hash": offer}
             if full or exchanged["hash"].get(actor) != offer:
@@ -342,13 +358,15 @@ async def sync(hass, entry, actor: str, credential: str) -> None:
             exchanged["watch"][actor] = {value for value in watch if isinstance(value, str)}
         else:
             exchanged["watch"].pop(actor, None)
+        if runtime.devices is not None:
+            await runtime.devices.attach(watched_devices(runtime))
         listed = {grant["id"]: grant for grant in result.get("grants", []) if isinstance(grant, dict)}
         for grant, sub in mine.items():
             if grant not in listed:
                 hass.config_entries.async_remove_subentry(entry, sub.subentry_id)
         for grant in listed.values():
             entity_id, status = grant.get("entity", ""), grant.get("status")
-            if status in ("pending", "confirming") and not permitted(user, entity_id):
+            if status in ("pending", "confirming") and not permitted(user, entity_id, hass):
                 # This account could not use it here anyway, whatever the person answers.
                 await runtime.client.request("entities/decision", {"grant": grant["id"], "allow": False}, credential)
             elif status == "pending" and grant["id"] not in runtime.asked:
@@ -360,7 +378,7 @@ async def sync(hass, entry, actor: str, credential: str) -> None:
                 await runtime.client.request("entities/decision", {"grant": grant["id"], "allow": True}, credential)
                 _remember(runtime, grant["id"])
                 add(hass, entry, actor, user, grant["id"], entity_id, label_of(hass, entity_id, grant.get("label")))
-            elif status == "approved" and grant["id"] not in mine and migrate and grant.get("carried") and permitted(user, entity_id):
+            elif status == "approved" and grant["id"] not in mine and migrate and grant.get("carried") and permitted(user, entity_id, hass):
                 add(hass, entry, actor, user, grant["id"], entity_id, label_of(hass, entity_id))
         _clear_repairs(hass, entry)
         if migrate:
@@ -374,7 +392,7 @@ async def offer(hass, entry, actor: str, entity_id: str) -> str:
     runtime = entry.runtime_data
     credential = await linked_user(hass, runtime, actor)
     user = await hass.auth.async_get_user(actor)
-    if not permitted(user, entity_id):
+    if not permitted(user, entity_id, hass):
         raise Unauthorized()
     async with runtime.grant_lock:
         result = await runtime.client.request("entities/offer", {"entity": entity_id, "label": label_of(hass, entity_id)[:128]}, credential)
@@ -383,8 +401,7 @@ async def offer(hass, entry, actor: str, entity_id: str) -> str:
 
 
 async def control(hass, entry, delivery: dict) -> None:
-    """Carries out CLM's service call on an allowed entity as the linked account."""
-    import time
+    """Carries out CLM's service call on an allowed entity, or a shared device's main entity, as the linked account."""
     from . import linked_user
     runtime = entry.runtime_data
     actor = delivery["actor"]
@@ -392,7 +409,17 @@ async def control(hass, entry, delivery: dict) -> None:
     user = await hass.auth.async_get_user(actor)
     entity_id = delivery.get("entity") or ""
     service = delivery.get("service") or ""
-    if (delivery["expires"] <= time.time() or not granted(runtime, actor, entity_id) or service not in SERVICES.get(domain_of(entity_id), ())
+    # A shared device is told what to do through its main entity: the grant is the device's, the call its entity's.
+    if devices.is_device(entity_id):
+        if not granted(runtime, actor, entity_id) or not (entity_id := devices.main_entity(hass, entity_id) or ""):
+            raise ValueError("Control denied.")
+        return await _call(hass, runtime, delivery, actor, user, entity_id, service, device_granted=True)
+    return await _call(hass, runtime, delivery, actor, user, entity_id, service)
+
+
+async def _call(hass, runtime, delivery: dict, actor: str, user, entity_id: str, service: str, device_granted: bool = False) -> None:
+    import time
+    if (delivery["expires"] <= time.time() or not (device_granted or granted(runtime, actor, entity_id)) or service not in SERVICES.get(domain_of(entity_id), ())
             or not user.permissions.check_entity(entity_id, POLICY_CONTROL) or hass.states.get(entity_id) is None):
         raise ValueError("Control denied.")
     data = service_data(domain_of(entity_id), service, delivery.get("data"))

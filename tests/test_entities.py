@@ -37,6 +37,17 @@ modules = {
     "homeassistant.helpers.issue_registry": issues,
 }
 sys.modules[package.__name__] = package
+# Shared devices: what entities.py asks of devices.py, standing in for Home Assistant's registries.
+devices = types.ModuleType(f"{package.__name__}.devices")
+devices.PREFIX = "device."
+devices.is_device = lambda reference: reference.startswith("device.")
+devices.device_id = lambda reference: reference[len("device."):]
+devices.permitted = lambda hass, user, reference: reference in getattr(hass, "devices_allowed", ())
+devices.label = lambda hass, reference, fallback=None: getattr(hass, "device_names", {}).get(reference, fallback or "Device")
+devices.main_entity = lambda hass, reference: getattr(hass, "device_mains", {}).get(reference)
+devices.snapshot = lambda hass, reference, fired: {"id": reference, "state": fired["at"] if fired else "unknown", "attributes": {"trigger": fired["key"]} if fired else {}}
+sys.modules[devices.__name__] = devices
+package.devices = devices
 with patch.dict(sys.modules, modules):
     for name in ("const", "entities"):
         spec = importlib.util.spec_from_file_location(f"{package.__name__}.{name}", root / f"{name}.py")
@@ -72,7 +83,7 @@ class EntityAccessTests(unittest.IsolatedAsyncioTestCase):
             state("lock.front", "locked", name="Front door"))}
         self.client = types.SimpleNamespace(request=AsyncMock())
         self.runtime = types.SimpleNamespace(closed=False, links={"actor": "credential"}, grants={}, fresh={}, asked=set(),
-                                             grant_lock=asyncio.Lock(), client=self.client)
+                                             grant_lock=asyncio.Lock(), client=self.client, devices=None)
         self.entry = types.SimpleNamespace(entry_id="entry", data={}, subentries={}, runtime_data=self.runtime)
         def add_subentry(entry, sub):
             entry.subentries = {**entry.subentries, sub.subentry_id: sub}
@@ -301,6 +312,51 @@ class EntityAccessTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await entities.control(self.hass, self.entry, delivery)
         self.assertEqual(1, self.hass.services.async_call.await_count)
+
+
+    async def test_a_shared_device_is_offered_with_its_triggers_and_only_watched_ones_are_attached(self):
+        """A remote is shared as its device: offered by name with its triggers, given a baseline, attached only while used."""
+        device, other = "device." + "a" * 32, "device." + "b" * 32
+        remote = {"id": device, "label": "Desk switch", "domain": "device", "traits": {"triggers": [{"key": "action_4_hold", "label": '"4_hold" action'}]}}
+        attached = []
+        self.runtime.devices = types.SimpleNamespace(catalogue=AsyncMock(return_value=[remote]), last={"a" * 32: {"at": "2026-10-16T20:00:00+00:00", "key": "action_4_hold"}},
+                                                     attach=AsyncMock(side_effect=lambda references: attached.append(set(references))))
+        self.hass.devices_allowed = {device}
+        self.grant("g5", device)
+        self.grant("g6", other)
+        self.entry.data = {"grants_migrated": ["actor"]}
+        self.answer_sync([])
+        self.client.request.side_effect = None
+        self.client.request.return_value = {"grants": [
+            {"id": "g5", "entity": device, "label": "Desk switch", "status": "approved", "carried": False},
+            {"id": "g6", "entity": other, "label": "Hall switch", "status": "approved", "carried": False}], "watch": [device]}
+        await entities.sync(self.hass, self.entry, "actor", "credential")
+        payload = self.client.request.await_args_list[0].args[1]
+        self.assertIn(remote, payload["entities"])
+        self.assertEqual({device: "2026-10-16T20:00:00+00:00", other: "unknown"}, {value["id"]: value["state"] for value in payload["states"]})
+        self.assertEqual([{device}], attached)
+        self.assertTrue(entities.permitted(self.user, device, self.hass))
+        self.assertFalse(entities.permitted(self.user, other, self.hass))
+        self.assertEqual("read", entities.policy(device))
+
+
+    async def test_a_shared_light_device_is_told_what_to_do_through_its_light(self):
+        """A light shared as its device stays a light: the call goes to the device's light entity, as this account."""
+        import time
+        device = "device." + "c" * 32
+        self.hass.device_mains = {device: "light.desk"}
+        self.grant("g7", device)
+        package.linked_user.reset_mock()
+        delivery = {"actor": "actor", "entity": device, "service": "turn_on", "data": {"brightness_pct": 40}, "expires": time.time() + 60}
+        await entities.control(self.hass, self.entry, delivery)
+        call = self.hass.services.async_call.await_args
+        self.assertEqual(("light", "turn_on", {"entity_id": "light.desk", "brightness_pct": 40}), call.args[:3])
+        # A device with nothing to control (a remote), or one not shared, is refused.
+        with self.assertRaises(ValueError):
+            await entities.control(self.hass, self.entry, {**delivery, "entity": "device." + "d" * 32})
+        self.hass.device_mains = {}
+        with self.assertRaises(ValueError):
+            await entities.control(self.hass, self.entry, delivery)
 
 
 if __name__ == "__main__":

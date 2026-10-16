@@ -167,6 +167,23 @@ Bridge-authorized actions are limited to approved leaf bindings to prevent cycle
 
 Buttons work without setup. Integrations such as Zigbee2MQTT, Matter, Hue and Shelly give a remote an event entity, which CLM is offered directly. ZHA, deCONZ and some others report a press only as a device trigger (for a Tuya TS0044 under ZHA: "Button 1 short press" and so on), never as an entity. For each such device the integration adds one **Button press** event entity to the device's own page, fired with the press as its event type (`button_1_short_press`, `button_3_long_press`). A device that already has an event entity gets none. Share that entity with CLM like any other; a CLM workflow can then start on any press of it or on one press in particular.
 
+### Devices, as Home Assistant's Device trigger
+
+From 0.8.0 a whole device can be shared with CLM, not only its entities. A device is offered when it has device triggers, under the name Home Assistant gives it, with every trigger worded as Home Assistant's Device trigger words it (`"4_hold" action`, `Desk lamp turned on`, `"First button" pressed`). In a CLM trigger choose the device, then **Which trigger**. Every firing counts, the same one twice included.
+
+A device that is a light, a switch, a cover or another controllable kind stays one: its main entity (the first such entity that is not a configuration or diagnostic one) says what it is, so CLM lists it with the lights, controls it with the light's options and reads its on/off and brightness in conditions. CLM's commands for the device go to that entity, checked against the linked Home Assistant user's permission on it. A device counts as the account's when that user may read one of its entities.
+
+The integration listens to a device's triggers only while one of CLM's enabled workflows uses the device.
+
+### Zigbee2MQTT remotes
+
+Zigbee2MQTT gives a remote an **Action** event entity (`event.<name>_action`), and when its legacy action sensor is switched on, also a sensor (`sensor.<name>_action`) that reads the action (`4_hold`) and is cleared a moment later. Sharing the **device** is best: every action is offered by name, as in Home Assistant's Device trigger. Its entities work too:
+
+- **The event entity** (listed under **Buttons and remotes**): in a **Home Assistant device changes** trigger, choose the remote, then **Which press**, such as **4 hold**. Every press counts, the same one twice included.
+- **The action sensor** (listed under **Sensors**): choose **When: State** and type the action in **To**, such as `4_hold`. From 0.7.1 the value and the clearing that follows are both sent, in order, so a press is never merged away.
+
+Zigbee2MQTT already gives its remotes event entities, so the integration adds no **Button press** entity to them.
+
 ## What is sent to CLM, and how often
 
 Entities shared with CLM change CLM workflows the moment they change, without polling:
