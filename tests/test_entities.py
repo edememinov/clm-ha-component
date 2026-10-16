@@ -119,6 +119,14 @@ class EntityAccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({"device_class": "door"}, entities.traits(state("binary_sensor.front", "off", device_class="door")))
         self.assertEqual({}, entities.traits(state("button.doorbell", "2026-10-13T08:00:00+00:00")))
 
+    def test_button_events_are_offered_with_their_presses_and_only_read(self):
+        remote = state("event.hall_remote", "2026-10-16T08:00:00+00:00", device_class="button", event_type="1_single",
+                       event_types=["1_single", "1_double", "1_hold"])
+        self.assertIn("event", entities.DOMAINS)
+        self.assertEqual({"event_types": ["1_single", "1_double", "1_hold"], "device_class": "button"}, entities.traits(remote))
+        self.assertEqual(entities.POLICY_READ, entities.policy("event.hall_remote"))
+        self.assertEqual("1_single", entities.snapshot(remote)["attributes"]["event_type"])
+
     def test_snapshot_keeps_scalars_and_short_number_lists(self):
         snapshot = entities.snapshot(self.states["light.desk"])
         self.assertEqual({"brightness": 120, "rgb_color": [255, 120, 0], "entity_picture": None}, snapshot["attributes"])

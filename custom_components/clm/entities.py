@@ -59,7 +59,8 @@ SERVICES = {
     "button": {"press": ()},
     "input_button": {"press": ()},
 }
-DOMAINS = (*SERVICES, "sensor", "binary_sensor")
+# Read only: sensors, and event entities (buttons and remotes, whose state is when they were last pressed).
+DOMAINS = (*SERVICES, "sensor", "binary_sensor", "event")
 SUBENTRY = "access"
 MAX_ENTITIES = 1000
 EVENT_REQUESTED = "clm_access_requested"
@@ -70,7 +71,7 @@ def domain_of(entity_id: str) -> str:
 
 
 def policy(entity_id: str) -> str:
-    """Sensors are read; everything with services, and automations, is used."""
+    """Sensors and events are read; everything with services, and automations, is used."""
     return POLICY_CONTROL if domain_of(entity_id) in (*SERVICES, "automation") else POLICY_READ
 
 
@@ -101,6 +102,7 @@ _LISTS = {
     "light": ("effect_list",), "fan": ("preset_modes",), "climate": ("hvac_modes", "preset_modes", "fan_modes", "swing_modes"),
     "humidifier": ("available_modes",), "water_heater": ("operation_list",), "media_player": ("source_list", "sound_mode_list"),
     "vacuum": ("fan_speed_list",), "siren": ("available_tones",), "select": ("options",), "input_select": ("options",),
+    "event": ("event_types",),
 }
 _RANGES = {
     "fan": ("percentage_step",), "climate": ("min_temp", "max_temp", "target_temp_step", "min_humidity", "max_humidity"),
@@ -141,7 +143,7 @@ def traits(state) -> dict:
             found[key] = value
     if state.domain in ("number", "input_number") and isinstance(attributes.get("unit_of_measurement"), str):
         found["unit"] = attributes["unit_of_measurement"][:64]
-    if state.domain in ("sensor", "binary_sensor"):
+    if state.domain in ("sensor", "binary_sensor", "event"):
         for key, name in (("device_class", "device_class"), ("unit_of_measurement", "unit"), ("state_class", "state_class")):
             if isinstance(attributes.get(key), str) and attributes[key]:
                 found[name] = attributes[key][:64]

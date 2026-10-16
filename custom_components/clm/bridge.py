@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import itertools
 import json
 import time
 
@@ -12,6 +13,8 @@ from homeassistant.const import EVENT_STATE_CHANGED
 
 # The regular exchange: CLM learns what changed in between from events, so this only catches up.
 HEARTBEAT = 300
+# The least time between two sends of changed states: a lone change goes at once, a burst together.
+SEND_GAP = 0.25
 from homeassistant.exceptions import HomeAssistantError
 
 from .client import CompanionError
@@ -70,13 +73,17 @@ async def sync_entities(hass, entry, only: str | None = None):
 
 
 async def forward_states(hass, entry):
-    """Sends changes of the entities CLM's workflows use, at most once a second per account.
+    """Sends changes of the entities CLM's workflows use the moment they happen.
 
-    Other allowed entities' changes wait for the regular exchange. An entity appearing or disappearing
-    changes what can be offered, so it wakes the exchange instead."""
+    The first change goes at once; changes arriving while it is sent, or within SEND_GAP after, go together in the
+    next request, so a sensor reporting many times a second costs a few requests a second, not one per reading. A
+    state that changed twice in between is sent once, as it is now; every press of a button (an event entity) is
+    sent, in order, as each is a separate press. Other allowed entities' changes wait for the regular exchange.
+    An entity appearing or disappearing changes what can be offered, so it wakes the exchange instead."""
     runtime = entry.runtime_data
-    waiting: dict[str, dict[str, dict]] = {}
+    waiting: dict[str, dict] = {}
     ready = asyncio.Event()
+    presses = itertools.count()
 
     @callback
     def changed(event):
@@ -87,30 +94,34 @@ async def forward_states(hass, entry):
             runtime.wake.set()
         if state is None:
             return
+        key = (state.entity_id, next(presses)) if entities.domain_of(state.entity_id) == "event" else state.entity_id
         for actor in list(runtime.grants):
             if entities.watched(runtime, actor, state.entity_id) and len(waiting.setdefault(actor, {})) < 500:
-                waiting[actor][state.entity_id] = entities.snapshot(state)
+                waiting[actor][key] = entities.snapshot(state)
                 ready.set()
 
     unsubscribe = hass.bus.async_listen(EVENT_STATE_CHANGED, changed)
     try:
         while True:
             await ready.wait()
-            await asyncio.sleep(1)
             ready.clear()
             batch, waiting = waiting, {}
-            for actor, states in batch.items():
-                credential = runtime.links.get(actor)
-                if credential is None:
-                    continue
-                try:
-                    await runtime.client.request("entities/states", list(states.values()), credential)
-                    entities.remember_sent(runtime, actor, states.values())
-                except CompanionError:
-                    # Not marked as sent, so the next regular exchange carries them.
-                    pass
+            await asyncio.gather(*(send_states(runtime, actor, list(states.values())) for actor, states in batch.items()))
+            await asyncio.sleep(SEND_GAP)
     finally:
         unsubscribe()
+
+
+async def send_states(runtime, actor: str, states: list[dict]) -> None:
+    credential = runtime.links.get(actor)
+    if credential is None or not states:
+        return
+    try:
+        await runtime.client.request("entities/states", states, credential)
+        entities.remember_sent(runtime, actor, states)
+    except CompanionError:
+        # Not marked as sent, so the next regular exchange carries them.
+        pass
 
 
 async def forward_events(hass, entry):

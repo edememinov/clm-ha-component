@@ -15,6 +15,9 @@ from .client import CompanionClient, CompanionError
 from .const import DOMAIN, STORAGE_VERSION
 from .policy import Authority, Denied
 
+# Button presses Home Assistant reports only as device triggers, as event entities (see event.py).
+PLATFORMS = ["event"]
+
 
 @dataclass
 class Runtime:
@@ -186,10 +189,13 @@ async def async_setup_entry(hass, entry):
     from .bridge import bridge
     task = entry.async_create_background_task(hass, bridge(hass, entry), "clm companion bridge")
     entry.async_on_unload(task.cancel)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
 async def async_unload_entry(hass, entry):
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
     entry.runtime_data.closed = True
     entry.runtime_data.pending.clear()
     entry.runtime_data.authority = Authority()

@@ -1,12 +1,12 @@
 {
   "domain": "clm",
   "name": "CLM",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "config_flow": true,
   "documentation": "https://github.com/edememinov/clm-ha-component#readme",
   "issue_tracker": "https://github.com/edememinov/clm-ha-component/issues",
   "iot_class": "local_polling",
-  "dependencies": ["websocket_api"],
+  "dependencies": ["device_automation", "websocket_api"],
   "requirements": [],
   "codeowners": ["@edememinov"]
 }

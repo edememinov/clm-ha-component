@@ -10,13 +10,13 @@ CLM Lovelace card and link each user's own account from that card.
 
 ## Use HA devices in CLM
 
-From version 0.3.0 the integration offers each linked account's lights, buttons (`button`, `input_button`) and sensors (`sensor`, `binary_sensor`) to CLM; from 0.6.0 also switches, input booleans, fans, covers, valves, locks, climate, humidifiers, water heaters, media players, vacuums, sirens, scenes, scripts, numbers, selects and text entities, by name only, filtered by what that Home Assistant user may use. CLM can use one only after you allow it in the CLM card:
+From version 0.3.0 the integration offers each linked account's lights, buttons (`button`, `input_button`) and sensors (`sensor`, `binary_sensor`) to CLM; from 0.6.0 also switches, input booleans, fans, covers, valves, locks, climate, humidifiers, water heaters, media players, vacuums, sirens, scenes, scripts, numbers, selects and text entities, by name only, filtered by what that Home Assistant user may use. From 0.7.0 it also offers event entities (`event`): the buttons of remotes and wall switches from Zigbee2MQTT, Matter, Hue, Shelly, Tuya and other integrations, with the presses each reports. CLM can use one only after you allow it in the CLM card:
 
 1. In CLM, open **Companion connections**, select this connection and choose **Ask Home Assistant** for a device.
 2. Open the CLM card's **Approvals** tab and choose **Allow** or **Refuse**. The integration then checks that your Home Assistant user may use the entity before it counts. It also fires `clm_access_requested` (`entity_id`, `account`, `config_entry_id`) when a request arrives, so an automation can notify your phone. From 0.4.0 requests no longer appear in Repairs.
 3. Allowed entities are listed under the CLM integration in **Devices & services** as **Shared with CLM**. Delete an entry to revoke it; CLM stops using it at once. **Share with CLM** on the same page allows an entity without waiting for a request.
 
-CLM workflows can then call every service of the entity's domain that CLM lists (for a light: on, off and toggle with brightness, brightness steps, colour temperature, colour, effect, flash and fade; for a switch: on, off and toggle; for a cover: open, close, stop and positions; for a media player: playback, volume, source and more), press buttons, and read states and attributes in conditions and state triggers. Each service accepts only its own options, and Home Assistant's own service schema checks their values; nothing can aim a call at another entity. The catalogue sends what each entity supports (its feature bits, effect and preset lists, number ranges, select options) so CLM offers only those. Allowed entities' state changes reach CLM within about a second. Service calls run as the linked Home Assistant user and are refused when that user may no longer control the entity.
+CLM workflows can then call every service of the entity's domain that CLM lists (for a light: on, off and toggle with brightness, brightness steps, colour temperature, colour, effect, flash and fade; for a switch: on, off and toggle; for a cover: open, close, stop and positions; for a media player: playback, volume, source and more), press buttons, and read states and attributes in conditions and state triggers. Each service accepts only its own options, and Home Assistant's own service schema checks their values; nothing can aim a call at another entity. The catalogue sends what each entity supports (its feature bits, effect and preset lists, number ranges, select options) so CLM offers only those. Allowed entities' state changes reach CLM as they happen. Service calls run as the linked Home Assistant user and are refused when that user may no longer control the entity.
 
 Approving a Home Assistant automation in CLM asks in the card's Approvals tab too. Automations approved before 0.3.0 are carried over once and keep working.
 
@@ -163,12 +163,19 @@ reliable completion/condition result: its acknowledgement remains **accepted**;
 lost acknowledgements remain **unknown**. It never claims runtime completion.
 Bridge-authorized actions are limited to approved leaf bindings to prevent cycles.
 
+## Remotes and wall switches
+
+Buttons work without setup. Integrations such as Zigbee2MQTT, Matter, Hue and Shelly give a remote an event entity, which CLM is offered directly. ZHA, deCONZ and some others report a press only as a device trigger (for a Tuya TS0044 under ZHA: "Button 1 short press" and so on), never as an entity. For each such device the integration adds one **Button press** event entity to the device's own page, fired with the press as its event type (`button_1_short_press`, `button_3_long_press`). A device that already has an event entity gets none. Share that entity with CLM like any other; a CLM workflow can then start on any press of it or on one press in particular.
+
 ## What is sent to CLM, and how often
 
 Entities shared with CLM change CLM workflows the moment they change, without polling:
 
-- Changes of the shared entities that an enabled CLM workflow uses are sent at once,
-  at most once a second per account. CLM tells the integration which ones those are.
+- Changes of the shared entities that an enabled CLM workflow uses are sent the moment they
+  happen. Changes arriving within a quarter of a second of the last send go together, so a
+  sensor that reports many times a second costs a few requests a second. Every button press
+  is sent, two quick presses of the same button included. CLM tells the integration which
+  entities its workflows use.
 - Other shared entities' changes go with the regular exchange, every five minutes.
 - The list of what could be shared, with each entity's abilities (a light's colour modes
   and white range, a sensor's class, unit and options), is sent only when it changed.
